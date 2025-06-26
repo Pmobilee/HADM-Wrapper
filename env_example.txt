@@ -2,7 +2,7 @@
 
 # Server Settings
 HOST=0.0.0.0
-PORT=8000
+PORT=8080
 WORKERS=4
 DEBUG=false
 
@@ -13,19 +13,19 @@ HADM_G_MODEL=HADM-G_0249999.pth
 EVA02_MODEL=eva02_L_coco_det_sys_o365.pth
 
 # Device Configuration
-DEVICE=cuda  # or cpu
+DEVICE=cuda
 GPU_ID=0
 
 # Detectron2 Configuration
 DETECTRON2_DATASETS=./datasets
 
 # Image Processing
-MAX_FILE_SIZE=10485760  # 10MB
+MAX_FILE_SIZE=10485760
 SUPPORTED_FORMATS=jpg,jpeg,png,webp
 IMAGE_SIZE=1024
 
 # Security
-RATE_LIMIT=100  # requests per minute per IP
+RATE_LIMIT=100
 MAX_CONCURRENT_REQUESTS=10
 
 # Logging

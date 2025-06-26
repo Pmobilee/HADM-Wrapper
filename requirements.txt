@@ -37,6 +37,7 @@ ninja
 # These will be installed when setting up HADM
 # mmcv==1.7.1
 # openmim
+fvcore
 
 # Development and Testing
 pytest==7.4.3

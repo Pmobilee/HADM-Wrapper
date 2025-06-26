@@ -283,8 +283,7 @@ async def detect_artifacts(
         return await detect_both_artifacts(image, confidence_threshold, max_detections)
 
 
-# Error handlers
-@router.exception_handler(HTTPException)
+# Error handlers (these will be added to the main app in main.py)
 async def http_exception_handler(request, exc):
     """Handle HTTP exceptions."""
     return JSONResponse(
@@ -296,7 +295,6 @@ async def http_exception_handler(request, exc):
     )
 
 
-@router.exception_handler(Exception)
 async def general_exception_handler(request, exc):
     """Handle general exceptions."""
     logger.error(f"Unhandled exception: {exc}")

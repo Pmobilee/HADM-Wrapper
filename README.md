@@ -88,7 +88,7 @@ chmod +x setup.sh && ./setup.sh
 #### **Development Mode**
 ```bash
 source venv/bin/activate
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
 ```
 
 #### **Production Mode**
@@ -99,17 +99,17 @@ docker-compose up -d
 #### **Quick Test**
 ```bash
 # Check if everything works
-curl http://localhost:8000/api/v1/health
+curl http://localhost:8080/api/v1/health
 ```
 
 ### 🌐 Access Points
 
 | Service | URL | Description |
 |---------|-----|-------------|
-| **API Documentation** | http://localhost:8000/docs | Interactive Swagger UI |
-| **Alternative Docs** | http://localhost:8000/redoc | ReDoc interface |
-| **Health Check** | http://localhost:8000/api/v1/health | Service status |
-| **Service Info** | http://localhost:8000/api/v1/info | Detailed information |
+| **API Documentation** | http://localhost:8080/docs | Interactive Swagger UI |
+| **Alternative Docs** | http://localhost:8080/redoc | ReDoc interface |
+| **Health Check** | http://localhost:8080/api/v1/health | Service status |
+| **Service Info** | http://localhost:8080/api/v1/info | Detailed information |
 
 ## 📋 API Endpoints
 
@@ -139,7 +139,7 @@ from pathlib import Path
 
 # Single detection
 def detect_artifacts(image_path: str, detection_type: str = "both"):
-    url = f"http://localhost:8000/api/v1/detect/{detection_type}"
+    url = f"http://localhost:8080/api/v1/detect/{detection_type}"
     
     with open(image_path, 'rb') as f:
         response = requests.post(
@@ -158,16 +158,16 @@ print(f"Found {len(result.get('local_detections', []))} local artifacts")
 #### **cURL Commands**
 ```bash
 # Local detection with custom threshold
-curl -X POST "http://localhost:8000/api/v1/detect/local" \
+curl -X POST "http://localhost:8080/api/v1/detect/local" \
      -F "image=@image.jpg" \
      -F "confidence_threshold=0.8"
 
 # Global detection
-curl -X POST "http://localhost:8000/api/v1/detect/global" \
+curl -X POST "http://localhost:8080/api/v1/detect/global" \
      -F "image=@image.jpg"
 
 # Health check
-curl http://localhost:8000/api/v1/health
+curl http://localhost:8080/api/v1/health
 ```
 
 #### **JavaScript/Node.js**
@@ -182,7 +182,7 @@ async function detectArtifacts(imagePath) {
     form.append('detection_type', 'both');
     
     const response = await axios.post(
-        'http://localhost:8000/api/v1/detect',
+        'http://localhost:8080/api/v1/detect',
         form,
         { headers: form.getHeaders() }
     );
@@ -200,7 +200,7 @@ async function detectArtifacts(imagePath) {
 docker build -t hadm-server .
 
 # Run the container
-docker run -p 8000:8000 hadm-server
+docker run -p 8080:8080 hadm-server
 ```
 
 ### Using Docker Compose
@@ -245,7 +245,7 @@ Environment variables can be set in a `.env` file:
 ```env
 # Server Configuration
 HOST=0.0.0.0
-PORT=8000
+PORT=8080
 WORKERS=4
 
 # Model Configuration

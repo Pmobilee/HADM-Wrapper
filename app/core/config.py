@@ -2,12 +2,12 @@
 HADM Server Configuration
 """
 import os
-from typing import List, Optional
+from typing import List, Optional, Union
 try:
     from pydantic_settings import BaseSettings
-    from pydantic import Field
+    from pydantic import Field, field_validator
 except ImportError:
-    from pydantic import BaseSettings, Field
+    from pydantic import BaseSettings, Field, validator as field_validator
 
 
 class Settings(BaseSettings):
@@ -15,14 +15,14 @@ class Settings(BaseSettings):
     
     # Server Configuration
     host: str = Field(default="0.0.0.0", env="HOST")
-    port: int = Field(default=8000, env="PORT")
+    port: int = Field(default=8080, env="PORT")
     workers: int = Field(default=4, env="WORKERS")
     debug: bool = Field(default=False, env="DEBUG")
     
     # API Configuration
     api_v1_prefix: str = Field(default="/api/v1", env="API_V1_PREFIX")
     enable_docs: bool = Field(default=True, env="ENABLE_DOCS")
-    cors_origins: List[str] = Field(default=["*"], env="CORS_ORIGINS")
+    cors_origins: Union[List[str], str] = Field(default=["*"], env="CORS_ORIGINS")
     
     # Model Configuration
     model_path: str = Field(default="./pretrained_models", env="MODEL_PATH")
@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     
     # Image Processing
     max_file_size: int = Field(default=10485760, env="MAX_FILE_SIZE")  # 10MB
-    supported_formats: List[str] = Field(
+    supported_formats: Union[List[str], str] = Field(
         default=["jpg", "jpeg", "png", "webp"], 
         env="SUPPORTED_FORMATS"
     )
@@ -66,6 +66,25 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = False
+        protected_namespaces = ()  # Allow model_ fields
+    
+    @field_validator('cors_origins', mode='before')
+    @classmethod
+    def parse_cors_origins(cls, v):
+        """Parse CORS origins from string or list."""
+        if isinstance(v, str):
+            if v == "*":
+                return ["*"]
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
+        return v
+    
+    @field_validator('supported_formats', mode='before')
+    @classmethod
+    def parse_supported_formats(cls, v):
+        """Parse supported formats from string or list."""
+        if isinstance(v, str):
+            return [fmt.strip() for fmt in v.split(",") if fmt.strip()]
+        return v
     
     @property
     def hadm_l_model_path(self) -> str:

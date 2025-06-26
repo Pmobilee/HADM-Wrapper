@@ -19,8 +19,9 @@ sys.path.insert(0, str(HADM_PATH))
 
 from app.core.config import settings
 from app.core.hadm_models import model_manager
-from app.api.endpoints import router
+from app.api.endpoints import router, http_exception_handler
 from app.models.schemas import ErrorResponse
+from fastapi import HTTPException
 
 # Configure logging
 logging.basicConfig(
@@ -126,6 +127,13 @@ async def root():
         "docs": f"{settings.api_v1_prefix}/docs" if settings.enable_docs else None,
         "health": f"{settings.api_v1_prefix}/health"
     }
+
+
+# Exception handlers
+@app.exception_handler(HTTPException)
+async def handle_http_exception(request: Request, exc: HTTPException):
+    """Handle HTTP exceptions."""
+    return await http_exception_handler(request, exc)
 
 
 # Global exception handler
