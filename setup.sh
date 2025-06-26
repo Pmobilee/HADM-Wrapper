@@ -46,14 +46,16 @@ fi
 print_status "Installing system dependencies..."
 if command -v apt-get &> /dev/null; then
     sudo apt-get update
-    sudo apt-get install -y python3 python3-venv python3-pip git wget curl build-essential cmake
+    sudo apt-get install -y python3 python3-venv python3-pip git wget curl build-essential cmake \
+        libjpeg-dev zlib1g-dev libtiff-dev libfreetype6-dev libpng-dev libopencv-dev
     print_success "System dependencies installed"
 elif command -v yum &> /dev/null; then
     sudo yum update -y
-    sudo yum install -y python3 python3-venv python3-pip git wget curl gcc gcc-c++ cmake
+    sudo yum install -y python3 python3-venv python3-pip git wget curl gcc gcc-c++ cmake \
+        libjpeg-turbo-devel zlib-devel libtiff-devel freetype-devel libpng-devel opencv-devel
     print_success "System dependencies installed"
 else
-    print_warning "Could not detect package manager. Please install: python3, python3-venv, python3-pip, git, wget, curl, build-essential, cmake"
+    print_warning "Could not detect package manager. Please install: python3, python3-venv, python3-pip, git, wget, curl, build-essential, cmake, libjpeg-dev, zlib1g-dev, libtiff-dev, libfreetype6-dev"
 fi
 
 # Step 2: Create and activate virtual environment
@@ -65,31 +67,36 @@ fi
 source venv/bin/activate
 print_success "Virtual environment activated"
 
-# Step 3: Upgrade pip
-print_status "Upgrading pip..."
-pip install --upgrade pip
-print_success "Pip upgraded"
+# Step 3: Upgrade pip and build tools
+print_status "Upgrading pip and build tools..."
+pip install --upgrade pip setuptools wheel
+print_success "Pip and build tools upgraded"
 
 # Step 4: Install PyTorch with CUDA support
 print_status "Installing PyTorch with CUDA support..."
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 print_success "PyTorch installed"
 
-# Step 5: Install other requirements
+# Step 5: Install Pillow 9.0.0 first (HADM compatibility requirement)
+print_status "Installing Pillow 9.0.0 for HADM compatibility..."
+pip install Pillow==9.0.0
+print_success "Pillow 9.0.0 installed"
+
+# Step 6: Install other requirements
 print_status "Installing Python requirements..."
 pip install -r requirements.txt
 print_success "Requirements installed"
 
-# Step 6: Install xformers (if needed)
+# Step 7: Install xformers (if needed)
 print_status "Installing xformers..."
 pip install -v -U git+https://github.com/facebookresearch/xformers.git@v0.0.18#egg=xformers || print_warning "xformers installation failed, continuing..."
 
-# Step 7: Install mmcv and related packages
+# Step 8: Install mmcv and related packages
 print_status "Installing mmcv..."
 pip install mmcv==1.7.1 openmim
 mim install mmcv-full || print_warning "mmcv-full installation failed, continuing..."
 
-# Step 8: Install detectron2 from HADM directory
+# Step 9: Install detectron2 from HADM directory
 print_status "Installing detectron2 from HADM..."
 if [ -d "HADM" ]; then
     cd HADM

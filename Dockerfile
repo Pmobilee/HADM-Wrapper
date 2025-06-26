@@ -6,7 +6,7 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install system dependencies
+# Install system dependencies including image processing libraries
 RUN apt-get update && apt-get install -y \
     git \
     wget \
@@ -20,6 +20,12 @@ RUN apt-get update && apt-get install -y \
     libxrender-dev \
     libgomp1 \
     libgcc-s1 \
+    libjpeg-dev \
+    zlib1g-dev \
+    libtiff-dev \
+    libfreetype6-dev \
+    libpng-dev \
+    libopencv-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
@@ -29,11 +35,14 @@ WORKDIR /app
 COPY requirements.txt .
 
 # Install Python dependencies
-RUN pip install --no-cache-dir --upgrade pip && \
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
     pip install --no-cache-dir -r requirements.txt
 
 # Install PyTorch with CUDA support
 RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+
+# Install Pillow 9.0.0 for HADM compatibility (before other dependencies)
+RUN pip install --no-cache-dir Pillow==9.0.0
 
 # Copy application code
 COPY . .

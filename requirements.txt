@@ -7,7 +7,7 @@ passlib[bcrypt]==1.7.4
 aiofiles==23.2.1
 
 # Image Processing
-Pillow
+Pillow==9.0.0  # HADM requires older Pillow version for Image.LINEAR compatibility
 opencv-python==4.8.1.78
 numpy==1.24.3
 

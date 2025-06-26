@@ -61,9 +61,11 @@
 
 ### Required Dependencies
 - PyTorch with CUDA 12.8
+- Pillow 9.0.0 (HADM compatibility requirement - older version needed)
 - Detectron2 (custom version from HADM)
 - xformers 0.0.18
 - mmcv 1.7.1
+- cloudpickle (required by detectron2)
 - Various computer vision libraries
 
 ### Model Files Needed

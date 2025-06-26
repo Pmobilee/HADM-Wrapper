@@ -15,13 +15,17 @@ fi
 echo "🔧 Activating virtual environment..."
 source venv/bin/activate
 
-# Upgrade pip
-echo "⬆️ Upgrading pip..."
-pip install --upgrade pip
+# Upgrade pip and build tools
+echo "⬆️ Upgrading pip and build tools..."
+pip install --upgrade pip setuptools wheel
 
 # Install PyTorch with CUDA support
 echo "🔥 Installing PyTorch with CUDA support..."
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+
+# Install Pillow 9.0.0 for HADM compatibility
+echo "🖼️ Installing Pillow 9.0.0 for HADM compatibility..."
+pip install Pillow==9.0.0
 
 # Install xformers
 echo "🚀 Installing xformers..."
