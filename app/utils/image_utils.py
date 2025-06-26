@@ -12,6 +12,7 @@ import cv2
 from fastapi import HTTPException, UploadFile
 
 from app.core.config import settings
+from app.models.schemas import ImageAnalysis
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ def validate_image_file(file: UploadFile) -> None:
 
 async def load_image_from_upload(
     file: UploadFile,
-) -> Tuple[np.ndarray, Tuple[int, int]]:
+) -> Tuple[np.ndarray, Tuple[int, int], str]:
     """
     Load image from uploaded file.
 
@@ -57,7 +58,7 @@ async def load_image_from_upload(
         file: Uploaded file object
 
     Returns:
-        Tuple of (image_array, original_dimensions)
+        Tuple of (image_array, original_dimensions, format)
 
     Raises:
         HTTPException: If image loading fails
@@ -73,13 +74,33 @@ async def load_image_from_upload(
         image_bytes = io.BytesIO(content)
         image_bytes.seek(0)  # Ensure we're at the beginning
 
+        # Detect format from filename or content
+        detected_format = "JPEG"  # Default
+        if file.filename:
+            ext = file.filename.lower().split(".")[-1]
+            if ext in ["png"]:
+                detected_format = "PNG"
+            elif ext in ["jpg", "jpeg"]:
+                detected_format = "JPEG"
+            elif ext in ["gif"]:
+                detected_format = "GIF"
+            elif ext in ["bmp"]:
+                detected_format = "BMP"
+            elif ext in ["webp"]:
+                detected_format = "WEBP"
+
         # Load image with PIL - enhanced approach
         try:
             # First, try direct loading from BytesIO
             pil_image = Image.open(image_bytes)
             pil_image.load()  # Force loading of image data
+            
+            # Get actual format from PIL if available
+            if pil_image.format:
+                detected_format = pil_image.format
+                
             logger.info(
-                f"Successfully loaded image directly from BytesIO: {pil_image.size}, mode: {pil_image.mode}"
+                f"Successfully loaded image directly from BytesIO: {pil_image.size}, mode: {pil_image.mode}, format: {detected_format}"
             )
 
         except Exception as img_error:
@@ -99,8 +120,13 @@ async def load_image_from_upload(
 
                 pil_image = Image.open(temp_path)
                 pil_image.load()  # Force loading
+                
+                # Get actual format from PIL if available
+                if pil_image.format:
+                    detected_format = pil_image.format
+                    
                 logger.info(
-                    f"Successfully loaded image using temporary file: {pil_image.size}, mode: {pil_image.mode}"
+                    f"Successfully loaded image using temporary file: {pil_image.size}, mode: {pil_image.mode}, format: {detected_format}"
                 )
 
                 # Clean up temp file
@@ -129,10 +155,10 @@ async def load_image_from_upload(
         image_array = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
 
         logger.info(
-            f"Loaded image: {original_size[0]}x{original_size[1]} pixels, mode: {pil_image.mode}"
+            f"Loaded image: {original_size[0]}x{original_size[1]} pixels, mode: {pil_image.mode}, format: {detected_format}"
         )
 
-        return image_array, original_size
+        return image_array, original_size, detected_format
 
     except HTTPException:
         # Re-raise HTTP exceptions
@@ -405,15 +431,16 @@ def save_image(image: np.ndarray, filepath: str, format: str = "JPEG") -> bool:
         return False
 
 
-def analyze_image(image: np.ndarray) -> Dict[str, Any]:
+def analyze_image(image: np.ndarray, file_format: str = "JPEG") -> ImageAnalysis:
     """
     Analyze image properties and metadata.
 
     Args:
         image: Input image as numpy array
+        file_format: Image format (default: JPEG)
 
     Returns:
-        Dictionary containing image analysis data
+        ImageAnalysis object containing image analysis data
     """
     try:
         # Basic image properties
@@ -470,23 +497,27 @@ def analyze_image(image: np.ndarray) -> Dict[str, Any]:
         else:
             size_category = "large"
 
-        return {
-            "width": width,
-            "height": height,
-            "channels": channels,
-            "dtype": str(image.dtype),
-            "file_size": file_size,
-            "color_space": color_space,
-            "aspect_ratio": aspect_ratio,
-            "size_category": size_category,
-            "total_pixels": total_pixels,
-            "mean_brightness": mean_brightness,
-            "std_brightness": std_brightness,
-            "sharpness": sharpness,
-            "contrast": contrast,
-            "noise_estimate": noise_estimate,
-            "color_distribution": color_distribution,
-        }
+        # Create and return ImageAnalysis object
+        return ImageAnalysis(
+            width=width,
+            height=height,
+            channels=channels,
+            format=file_format,
+            file_size=file_size,
+            mean_brightness=mean_brightness,
+            contrast_ratio=contrast,
+            color_distribution=color_distribution,
+            histogram_stats={
+                "mean_brightness": mean_brightness,
+                "std_brightness": std_brightness,
+                "sharpness": sharpness,
+                "noise_estimate": noise_estimate,
+                "aspect_ratio": aspect_ratio,
+                "size_category": size_category,
+                "total_pixels": total_pixels,
+                "color_space": color_space,
+            }
+        )
 
     except Exception as e:
         logger.warning(f"Error analyzing image: {e}")
@@ -494,17 +525,15 @@ def analyze_image(image: np.ndarray) -> Dict[str, Any]:
         height, width = image.shape[:2]
         channels = image.shape[2] if len(image.shape) > 2 else 1
 
-        return {
-            "width": width,
-            "height": height,
-            "channels": channels,
-            "dtype": str(image.dtype),
-            "file_size": image.nbytes,
-            "color_space": "RGB" if channels == 3 else "Grayscale",
-            "aspect_ratio": float(width / height),
-            "size_category": "unknown",
-            "total_pixels": width * height,
-        }
+        return ImageAnalysis(
+            width=width,
+            height=height,
+            channels=channels,
+            format=file_format,
+            file_size=image.nbytes,
+            mean_brightness=float(np.mean(image)) if image.size > 0 else 0.0,
+            contrast_ratio=float(np.std(image)) if image.size > 0 else 0.0,
+        )
 
 
 def visualize_detections(

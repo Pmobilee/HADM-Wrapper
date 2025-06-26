@@ -190,8 +190,8 @@ async def detect_local_artifacts(
     try:
         # Load and preprocess image
         preprocess_start = time.time()
-        img_array = await load_image_from_upload(image)
-        image_analysis = analyze_image(img_array)
+        img_array, original_size, file_format = await load_image_from_upload(image)
+        image_analysis = analyze_image(img_array, file_format)
         preprocessing_time = time.time() - preprocess_start
 
         # Initialize model
@@ -284,7 +284,7 @@ async def detect_local_artifacts(
             success=False,
             message=f"Local detection failed: {str(e)}",
             image_analysis=ImageAnalysis(
-                width=0, height=0, channels=0, dtype="unknown", file_size=0
+                width=0, height=0, channels=0, format="unknown", file_size=0
             ),
             performance_metrics=performance_metrics,
             detection_type=DetectionType.LOCAL,
@@ -305,8 +305,8 @@ async def detect_global_artifacts(
     try:
         # Load and preprocess image
         preprocess_start = time.time()
-        img_array = await load_image_from_upload(image)
-        image_analysis = analyze_image(img_array)
+        img_array, original_size, file_format = await load_image_from_upload(image)
+        image_analysis = analyze_image(img_array, file_format)
         preprocessing_time = time.time() - preprocess_start
 
         # Initialize model
@@ -382,7 +382,7 @@ async def detect_global_artifacts(
             success=False,
             message=f"Global detection failed: {str(e)}",
             image_analysis=ImageAnalysis(
-                width=0, height=0, channels=0, dtype="unknown", file_size=0
+                width=0, height=0, channels=0, format="unknown", file_size=0
             ),
             performance_metrics=performance_metrics,
             detection_type=DetectionType.GLOBAL,
@@ -406,8 +406,8 @@ async def detect_both_artifacts(
     try:
         # Load and preprocess image
         preprocess_start = time.time()
-        img_array = await load_image_from_upload(image)
-        image_analysis = analyze_image(img_array)
+        img_array, original_size, file_format = await load_image_from_upload(image)
+        image_analysis = analyze_image(img_array, file_format)
         preprocessing_time = time.time() - preprocess_start
 
         # Initialize models
@@ -542,7 +542,7 @@ async def detect_both_artifacts(
             success=False,
             message=f"Combined detection failed: {str(e)}",
             image_analysis=ImageAnalysis(
-                width=0, height=0, channels=0, dtype="unknown", file_size=0
+                width=0, height=0, channels=0, format="unknown", file_size=0
             ),
             performance_metrics=performance_metrics,
             detection_type=DetectionType.BOTH,
@@ -622,8 +622,8 @@ async def detect_artifacts_enhanced(
     try:
         # Load and analyze image
         preprocess_start = time.time()
-        img_array = await load_image_from_upload(image)
-        image_analysis = analyze_image(img_array)
+        img_array, original_size, file_format = await load_image_from_upload(image)
+        image_analysis = analyze_image(img_array, file_format)
         preprocessing_time = time.time() - preprocess_start
 
         # Initialize models based on detection type
@@ -806,7 +806,7 @@ async def detect_artifacts_enhanced(
             success=False,
             message=f"Enhanced detection failed: {str(e)}",
             image_analysis=ImageAnalysis(
-                width=0, height=0, channels=0, dtype="unknown", file_size=0
+                width=0, height=0, channels=0, format="unknown", file_size=0
             ),
             performance_metrics=performance_metrics,
             detection_type=detection_type,
