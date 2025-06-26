@@ -11,7 +11,9 @@
 - [x] Updated PyTorch installation to use CUDA 12.8 across all setup scripts
 - [x] **CRITICAL FIX: Added Pillow 9.0.0 requirement** - HADM uses older PIL API (Image.LINEAR)
 - [x] **Added system dependencies** - libjpeg-dev, zlib1g-dev, libtiff-dev, libfreetype6-dev for image processing
-- [ ] Install mmcv and other computer vision dependencies
+- [x] Install mmcv and other computer vision dependencies
+- [x] **CRITICAL FIX: PyTorch 2.6 weights_only issue** - Fixed model loading with weights_only=False
+- [x] **CRITICAL FIX: Image loading from BytesIO** - Enhanced image upload handling
 - [ ] Set up DETECTRON2_DATASETS environment variable
 - [ ] Configure model paths and checkpoint locations
 
@@ -121,11 +123,14 @@
 - [x] **Model Files Downloaded**: All pretrained models in place
 - [x] **Model Loading Improved**: Enhanced error handling and fallback mechanisms
 - [x] **🔧 CRITICAL FIX: Pillow 9.0.0**: Fixed PIL compatibility issue (Image.LINEAR)
-- [ ] **🔧 CRITICAL: Install cloudpickle**: Required by detectron2
-- [ ] **🔧 CRITICAL: Install Detectron2**: Models failing due to missing detectron2  
-- [ ] **🔧 CRITICAL: Install mmcv**: Required for HADM model architecture
-- [ ] **Verify Model Loading**: Test model loading after dependencies installed
-- [ ] **Test Detection**: Verify actual detection functionality
+- [x] **🔧 CRITICAL: Install cloudpickle**: Required by detectron2
+- [x] **🔧 CRITICAL: Install Detectron2**: Models failing due to missing detectron2  
+- [x] **🔧 CRITICAL: Install mmcv-full**: Required MMCV with CUDA ops for HADM model architecture
+- [x] **🔧 CRITICAL: MMCV Build from Source**: Compiled mmcv-full with CUDA ops (10-20min build)
+- [x] **Verify Model Loading**: Test model loading after dependencies installed
+- [x] **🔧 CRITICAL: Fix Image Loading**: BytesIO image processing issue resolved
+- [x] **🔧 CRITICAL: Fix Model Dependencies**: HADM path setup and dependency checking fixed
+- [ ] **Test Detection**: Verify actual detection functionality with proper model loading
 
 ## Other
 - [ ] create the API security using an API token that is placed into .env (needs to be generated)

@@ -64,24 +64,77 @@ chmod +x setup.sh && ./setup.sh
    cd HADM_server
    ```
 
-2. **Run setup script**
+2. **Create virtual environment**
    ```bash
-   chmod +x scripts/setup_environment.sh
-   ./scripts/setup_environment.sh
+   python3 -m venv venv --prompt HADM_server
+   source venv/bin/activate
    ```
 
-3. **Download model files**
+3. **Install system dependencies**
    ```bash
+   sudo apt-get update
+   sudo apt-get install -y build-essential ninja-build cmake pkg-config \
+       libjpeg-dev zlib1g-dev libtiff-dev libfreetype6-dev libpng-dev
+   ```
+
+4. **Install Python dependencies**
+   ```bash
+   pip install -U pip wheel setuptools openmim ninja psutil cmake
+   
+   # Install PyTorch with CUDA support
+   pip install torch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 \
+       --index-url https://download.pytorch.org/whl/cu121
+   
+   # Install Detectron2
+   pip install detectron2 -f https://dl.fbaipublicfiles.com/detectron2/wheels/cu121/torch2.0/index.html
+   ```
+
+5. **⚠️ CRITICAL: Install MMCV-Full with CUDA ops**
+   ```bash
+   # Set environment variables
+   export MMCV_WITH_OPS=1
+   export CUDA_HOME=/usr/local/cuda-12.1
+   
+   # Try pre-built wheel first
+   pip install mmcv-full -f https://download.openmmlab.com/mmcv/dist/cu121/torch2.0/index.html
+   
+   # If pre-built wheel fails, build from source (10-20 minutes)
+   git clone --depth 1 https://github.com/open-mmlab/mmcv.git
+   cd mmcv
+   pip install -v -e .
+   cd ..
+   ```
+
+6. **Install remaining dependencies**
+   ```bash
+   pip install fastapi uvicorn[standard] python-multipart pydantic \
+       Pillow==9.0.0 opencv-python numpy cloudpickle fairscale
+   ```
+
+7. **Clone HADM repository**
+   ```bash
+   git clone https://github.com/marlinfiggins/HADM.git
+   ```
+
+8. **Download model files**
+   ```bash
+   chmod +x scripts/download_models.sh
    ./scripts/download_models.sh
    ```
 
-4. **Configure environment**
+9. **Verify installation**
    ```bash
-   cp env.example .env
-   # Edit .env with your settings
+   python diagnose_models.py
    ```
 
 </details>
+
+### 🚨 Important Notes
+
+- **MMCV-Full is CRITICAL**: The server requires `mmcv-full` with CUDA ops compiled. The regular `mmcv` package will NOT work.
+- **CUDA Version**: Ensure your CUDA version matches the PyTorch and MMCV installations (default: CUDA 12.1).
+- **GPU Memory**: Each model requires ~5GB VRAM. Ensure sufficient GPU memory is available.
+- **Build Time**: Building MMCV from source takes 10-20 minutes but ensures compatibility.
 
 ### 🚀 Launch Options
 
@@ -282,6 +335,59 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Issues**: [GitHub Issues](https://github.com/yourusername/HADM_server/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/yourusername/HADM_server/discussions)
 - **Email**: support@yourproject.com
+
+## 🚨 Troubleshooting
+
+### Common Issues
+
+#### "Dependencies not available for model loading"
+This error indicates MMCV-Full with CUDA ops is not properly installed:
+
+```bash
+# Check if MMCV ops are available
+python -c "from mmcv import ops; print('MMCV ops OK')"
+
+# If this fails, reinstall MMCV-Full:
+pip uninstall mmcv mmcv-full -y
+export MMCV_WITH_OPS=1
+export CUDA_HOME=/usr/local/cuda-12.1
+pip install mmcv-full -f https://download.openmmlab.com/mmcv/dist/cu121/torch2.0/index.html
+```
+
+#### "No module named 'mmcv._ext'"
+You have the lite version of MMCV. Install the full version:
+
+```bash
+pip uninstall mmcv -y
+pip install mmcv-full -f https://download.openmmlab.com/mmcv/dist/cu121/torch2.0/index.html
+```
+
+#### Models not loading into GPU memory
+Check if CUDA is properly configured:
+
+```bash
+# Verify CUDA installation
+nvidia-smi
+python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')"
+
+# Run diagnostics
+python diagnose_models.py
+```
+
+#### Build errors during MMCV compilation
+Ensure all build tools are installed:
+
+```bash
+sudo apt-get install -y build-essential ninja-build cmake
+pip install ninja psutil
+```
+
+### Getting Help
+
+1. **Run diagnostics first**: `python diagnose_models.py`
+2. **Check logs**: Look at server logs for specific error messages
+3. **Verify dependencies**: Ensure all requirements are properly installed
+4. **GPU memory**: Make sure you have enough VRAM (10GB+ recommended)
 
 ## 🗺️ Roadmap
 

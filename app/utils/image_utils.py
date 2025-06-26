@@ -69,8 +69,42 @@ async def load_image_from_upload(file: UploadFile) -> Tuple[np.ndarray, Tuple[in
         # Read file content
         content = await file.read()
         
-        # Load image with PIL
-        pil_image = Image.open(io.BytesIO(content))
+        # Create BytesIO object and ensure it's at the beginning
+        image_bytes = io.BytesIO(content)
+        image_bytes.seek(0)  # Ensure we're at the beginning
+        
+        # Load image with PIL - enhanced approach
+        try:
+            # First, try direct loading from BytesIO
+            pil_image = Image.open(image_bytes)
+            pil_image.load()  # Force loading of image data
+            logger.info(f"Successfully loaded image directly from BytesIO: {pil_image.size}, mode: {pil_image.mode}")
+            
+        except Exception as img_error:
+            logger.error(f"PIL failed to open image from BytesIO: {img_error}")
+            logger.info("Trying alternative approach with temporary file...")
+            
+            # Try with different approach - save to temp file
+            import tempfile
+            try:
+                with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_file:
+                    temp_file.write(content)
+                    temp_file.flush()
+                    temp_path = temp_file.name
+                
+                pil_image = Image.open(temp_path)
+                pil_image.load()  # Force loading
+                logger.info(f"Successfully loaded image using temporary file: {pil_image.size}, mode: {pil_image.mode}")
+                
+                # Clean up temp file
+                os.unlink(temp_path)
+                
+            except Exception as temp_error:
+                logger.error(f"Failed to load image even with temporary file: {temp_error}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cannot process image file: {str(temp_error)}"
+                )
         
         # Get original dimensions
         original_size = pil_image.size  # (width, height)
@@ -85,12 +119,16 @@ async def load_image_from_upload(file: UploadFile) -> Tuple[np.ndarray, Tuple[in
         # Convert RGB to BGR for OpenCV compatibility
         image_array = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
         
-        logger.info(f"Loaded image: {original_size[0]}x{original_size[1]} pixels")
+        logger.info(f"Loaded image: {original_size[0]}x{original_size[1]} pixels, mode: {pil_image.mode}")
         
         return image_array, original_size
         
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
     except Exception as e:
         logger.error(f"Failed to load image: {e}")
+        logger.error(f"File info - name: {file.filename}, content_type: {file.content_type}")
         raise HTTPException(
             status_code=400,
             detail=f"Failed to process image: {str(e)}"

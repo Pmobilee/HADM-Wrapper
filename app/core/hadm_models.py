@@ -11,16 +11,25 @@ from pathlib import Path
 import cv2
 from PIL import Image
 
-# Add HADM to Python path
+# Add HADM to Python path - CRITICAL: Do this first before any other imports
 HADM_PATH = Path(__file__).parent.parent.parent / "HADM"
-sys.path.insert(0, str(HADM_PATH))
+if str(HADM_PATH) not in sys.path:
+    sys.path.insert(0, str(HADM_PATH))
 
 logger = logging.getLogger(__name__)
 
 # Try to import dependencies - handle gracefully if not available
 DEPENDENCIES_AVAILABLE = True
+HADM_CONFIGS_AVAILABLE = False
+
 try:
     import torch
+    logger.info(f"PyTorch version: {torch.__version__}")
+    logger.info(f"CUDA available: {torch.cuda.is_available()}")
+    
+    import detectron2
+    logger.info(f"Detectron2 version: {detectron2.__version__}")
+    
     from detectron2.config import get_cfg, CfgNode
     from detectron2.engine import DefaultPredictor
     from detectron2.data import MetadataCatalog
@@ -36,6 +45,8 @@ try:
     except ImportError as e:
         logger.warning(f"HADM configurations not available: {e}")
         HADM_CONFIGS_AVAILABLE = False
+        
+    logger.info("All core dependencies loaded successfully")
         
 except ImportError as e:
     logger.error(f"Core dependencies not available: {e}")
@@ -144,26 +155,49 @@ class HADMLocalModel(HADMModelBase):
                 logger.error(f"HADM-L model not found at {model_path}")
                 return False
             
+            # Test model loading first (like diagnose_models.py does)
+            logger.info("Testing model file loading...")
+            try:
+                # Try to load model weights (handle PyTorch 2.6 weights_only issue)
+                model_state = torch.load(model_path, map_location=self.device, weights_only=False)
+                logger.info(f"Model state loaded successfully, keys: {len(model_state.keys()) if isinstance(model_state, dict) else 'Not a dict'}")
+                
+                # Show model structure
+                if isinstance(model_state, dict):
+                    if 'model' in model_state:
+                        logger.info("Model contains 'model' key")
+                    if 'ema' in model_state:
+                        logger.info("Model contains 'ema' key (EMA weights)")
+                
+            except Exception as e:
+                logger.error(f"Failed to load model weights: {e}")
+                return False
+            
             # Create configuration
             if HADM_CONFIGS_AVAILABLE:
                 # Use HADM configuration
-                cfg = LazyConfig.load_config(str(HADM_PATH / "projects/ViTDet/configs/eva2_o365_to_coco/demo_local.py"))
-                
-                # Convert LazyConfig to standard config for predictor
-                cfg_dict = LazyConfig.to_py(cfg.model)
-                cfg = get_cfg()
-                
-                # Set basic configuration
-                cfg.MODEL.DEVICE = self.device
-                cfg.MODEL.WEIGHTS = model_path
-                cfg.MODEL.ROI_HEADS.NUM_CLASSES = self.num_classes
-                
-                # Set input format
-                cfg.INPUT.FORMAT = "BGR"
-                cfg.INPUT.MIN_SIZE_TEST = 1024
-                cfg.INPUT.MAX_SIZE_TEST = 1024
-                
-                logger.info("Using HADM configuration for local model")
+                try:
+                    cfg = LazyConfig.load_config(str(HADM_PATH / "projects/ViTDet/configs/eva2_o365_to_coco/demo_local.py"))
+                    logger.info("HADM LazyConfig loaded successfully")
+                    
+                    # Convert LazyConfig to standard config for predictor
+                    cfg_dict = LazyConfig.to_py(cfg.model)
+                    cfg = get_cfg()
+                    
+                    # Set basic configuration
+                    cfg.MODEL.DEVICE = self.device
+                    cfg.MODEL.WEIGHTS = model_path
+                    cfg.MODEL.ROI_HEADS.NUM_CLASSES = self.num_classes
+                    
+                    # Set input format
+                    cfg.INPUT.FORMAT = "BGR"
+                    cfg.INPUT.MIN_SIZE_TEST = 1024
+                    cfg.INPUT.MAX_SIZE_TEST = 1024
+                    
+                    logger.info("Using HADM configuration for local model")
+                except Exception as e:
+                    logger.error(f"Failed to load HADM config: {e}")
+                    return self._load_simplified_model(model_path)
             else:
                 # Fallback to basic configuration
                 logger.warning("Using fallback configuration for local model")
@@ -177,6 +211,7 @@ class HADMLocalModel(HADMModelBase):
             
             # Create predictor
             try:
+                logger.info("Creating DefaultPredictor...")
                 self.predictor = DefaultPredictor(cfg)
                 logger.info("DefaultPredictor created successfully")
             except Exception as e:
@@ -191,7 +226,13 @@ class HADMLocalModel(HADMModelBase):
                 self.metadata.thing_classes = self.class_names
             
             self.is_loaded = True
-            logger.info("HADM-L model loaded successfully")
+            logger.info("HADM-L model loaded successfully - GPU memory allocated")
+            
+            # Log GPU memory usage if available
+            if torch.cuda.is_available():
+                memory_allocated = torch.cuda.memory_allocated() / 1024**3  # GB
+                logger.info(f"GPU memory allocated: {memory_allocated:.2f} GB")
+            
             return True
             
         except Exception as e:
@@ -301,6 +342,24 @@ class HADMGlobalModel(HADMModelBase):
                 logger.error(f"HADM-G model not found at {model_path}")
                 return False
             
+            # Test model loading first (like diagnose_models.py does)
+            logger.info("Testing model file loading...")
+            try:
+                # Try to load model weights (handle PyTorch 2.6 weights_only issue)
+                model_state = torch.load(model_path, map_location=self.device, weights_only=False)
+                logger.info(f"Model state loaded successfully, keys: {len(model_state.keys()) if isinstance(model_state, dict) else 'Not a dict'}")
+                
+                # Show model structure
+                if isinstance(model_state, dict):
+                    if 'model' in model_state:
+                        logger.info("Model contains 'model' key")
+                    if 'ema' in model_state:
+                        logger.info("Model contains 'ema' key (EMA weights)")
+                
+            except Exception as e:
+                logger.error(f"Failed to load model weights: {e}")
+                return False
+            
             # Create configuration
             if HADM_CONFIGS_AVAILABLE:
                 # Use HADM configuration
@@ -348,7 +407,13 @@ class HADMGlobalModel(HADMModelBase):
                 self.metadata.thing_classes = self.class_names
             
             self.is_loaded = True
-            logger.info("HADM-G model loaded successfully")
+            logger.info("HADM-G model loaded successfully - GPU memory allocated")
+            
+            # Log GPU memory usage if available
+            if torch.cuda.is_available():
+                memory_allocated = torch.cuda.memory_allocated() / 1024**3  # GB
+                logger.info(f"GPU memory allocated: {memory_allocated:.2f} GB")
+            
             return True
             
         except Exception as e:

@@ -12,10 +12,11 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 import uvicorn
 
-# Add HADM to Python path
+# Add HADM to Python path - CRITICAL: Do this before importing model_manager
 from pathlib import Path
 HADM_PATH = Path(__file__).parent.parent / "HADM"
-sys.path.insert(0, str(HADM_PATH))
+if str(HADM_PATH) not in sys.path:
+    sys.path.insert(0, str(HADM_PATH))
 
 from app.core.config import settings
 from app.core.hadm_models import model_manager
