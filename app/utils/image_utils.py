@@ -94,11 +94,11 @@ async def load_image_from_upload(
             # First, try direct loading from BytesIO
             pil_image = Image.open(image_bytes)
             pil_image.load()  # Force loading of image data
-            
+
             # Get actual format from PIL if available
             if pil_image.format:
                 detected_format = pil_image.format
-                
+
             logger.info(
                 f"Successfully loaded image directly from BytesIO: {pil_image.size}, mode: {pil_image.mode}, format: {detected_format}"
             )
@@ -120,11 +120,11 @@ async def load_image_from_upload(
 
                 pil_image = Image.open(temp_path)
                 pil_image.load()  # Force loading
-                
+
                 # Get actual format from PIL if available
                 if pil_image.format:
                     detected_format = pil_image.format
-                    
+
                 logger.info(
                     f"Successfully loaded image using temporary file: {pil_image.size}, mode: {pil_image.mode}, format: {detected_format}"
                 )
@@ -516,7 +516,7 @@ def analyze_image(image: np.ndarray, file_format: str = "JPEG") -> ImageAnalysis
                 "size_category": size_category,
                 "total_pixels": total_pixels,
                 "color_space": color_space,
-            }
+            },
         )
 
     except Exception as e:

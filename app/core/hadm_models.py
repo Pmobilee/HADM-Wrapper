@@ -226,10 +226,21 @@ class HADMLocalModel(HADMModelBase):
             # Setup device
             self._setup_device()
 
-            # Check for model weights
-            model_path = settings.hadm_l_model_path
-            if not os.path.exists(model_path):
-                logger.warning(f"⚠️ Model weights not found at {model_path}")
+            # Check for model weights - try multiple paths
+            model_paths = [
+                settings.hadm_l_model_path,  # /home/pretrained_models/HADM-L_0249999.pth
+                f"./pretrained_models/{settings.hadm_l_model}",  # Fallback
+                f"pretrained_models/{settings.hadm_l_model}",  # Another fallback
+            ]
+
+            model_path = None
+            for path in model_paths:
+                if os.path.exists(path):
+                    model_path = path
+                    break
+
+            if not model_path:
+                logger.warning(f"⚠️ Model weights not found in any of: {model_paths}")
                 logger.warning("⚠️ HADM-L will run in SIMPLIFIED MODE")
                 self.simplified_mode = True
                 self.is_loaded = True
@@ -251,20 +262,47 @@ class HADMLocalModel(HADMModelBase):
                 # Create model without loading weights first
                 logger.info("🔄 Building model architecture...")
 
-                # Try to use a standard model zoo config that's compatible
+                # Try to use the actual HADM config
                 try:
-                    # Use a basic Mask R-CNN config as base
-                    cfg.merge_from_file(
-                        model_zoo.get_config_file(
-                            "COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml"
-                        )
+                    # First try to use the HADM-specific config
+                    hadm_config_path = (
+                        "HADM/projects/ViTDet/configs/eva2_o365_to_coco/demo_local.py"
                     )
-                    cfg.MODEL.ROI_HEADS.NUM_CLASSES = self.num_classes
-                    cfg.MODEL.DEVICE = str(self.device)
-                    cfg.MODEL.WEIGHTS = ""  # Don't auto-load weights
+                    if os.path.exists(hadm_config_path):
+                        logger.info(
+                            f"🎯 Using HADM-specific config: {hadm_config_path}"
+                        )
+                        # For .py configs, we need to use LazyConfig
+                        from detectron2.config import LazyConfig
 
-                    # Create predictor
-                    self.predictor = DefaultPredictor(cfg)
+                        cfg = LazyConfig.load_config(hadm_config_path)
+                        cfg.model.device = str(self.device)
+                        # Convert LazyConfig to CfgNode for compatibility
+                        from detectron2.config import instantiate
+
+                        model = instantiate(cfg.model)
+                        # Create a basic CfgNode for the predictor
+                        from detectron2.config import CfgNode
+
+                        cfg_node = CfgNode()
+                        cfg_node.MODEL.DEVICE = str(self.device)
+                        cfg_node.MODEL.WEIGHTS = ""
+                        self.predictor = DefaultPredictor(cfg_node)
+                        self.predictor.model = model.to(self.device)
+                    else:
+                        # Fallback to a working config from model zoo
+                        logger.info("🔄 Using fallback config from model zoo")
+                        cfg.merge_from_file(
+                            model_zoo.get_config_file(
+                                "COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml"
+                            )
+                        )
+                        cfg.MODEL.ROI_HEADS.NUM_CLASSES = self.num_classes
+                        cfg.MODEL.DEVICE = str(self.device)
+                        cfg.MODEL.WEIGHTS = ""  # Don't auto-load weights
+
+                        # Create predictor
+                        self.predictor = DefaultPredictor(cfg)
 
                     # Now manually load the weights
                     logger.info("🔄 Loading weights into model...")
@@ -391,10 +429,21 @@ class HADMGlobalModel(HADMModelBase):
             # Setup device
             self._setup_device()
 
-            # Check for model weights
-            model_path = settings.hadm_g_model_path
-            if not os.path.exists(model_path):
-                logger.warning(f"⚠️ Model weights not found at {model_path}")
+            # Check for model weights - try multiple paths
+            model_paths = [
+                settings.hadm_g_model_path,  # /home/pretrained_models/HADM-G_0249999.pth
+                f"./pretrained_models/{settings.hadm_g_model}",  # Fallback
+                f"pretrained_models/{settings.hadm_g_model}",  # Another fallback
+            ]
+
+            model_path = None
+            for path in model_paths:
+                if os.path.exists(path):
+                    model_path = path
+                    break
+
+            if not model_path:
+                logger.warning(f"⚠️ Model weights not found in any of: {model_paths}")
                 logger.warning("⚠️ HADM-G will run in SIMPLIFIED MODE")
                 self.simplified_mode = True
                 self.is_loaded = True
@@ -410,19 +459,47 @@ class HADMGlobalModel(HADMModelBase):
                 cfg = get_cfg()
                 cfg.MODEL.DEVICE = str(self.device)
 
-                # Try to use a standard model zoo config
+                # Try to use the actual HADM config
                 try:
-                    cfg.merge_from_file(
-                        model_zoo.get_config_file(
-                            "COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml"
-                        )
+                    # First try to use the HADM-specific config
+                    hadm_config_path = (
+                        "HADM/projects/ViTDet/configs/eva2_o365_to_coco/demo_global.py"
                     )
-                    cfg.MODEL.ROI_HEADS.NUM_CLASSES = self.num_classes
-                    cfg.MODEL.DEVICE = str(self.device)
-                    cfg.MODEL.WEIGHTS = ""  # Don't auto-load weights
+                    if os.path.exists(hadm_config_path):
+                        logger.info(
+                            f"🎯 Using HADM-specific config: {hadm_config_path}"
+                        )
+                        # For .py configs, we need to use LazyConfig
+                        from detectron2.config import LazyConfig
 
-                    # Create predictor
-                    self.predictor = DefaultPredictor(cfg)
+                        cfg = LazyConfig.load_config(hadm_config_path)
+                        cfg.model.device = str(self.device)
+                        # Convert LazyConfig to CfgNode for compatibility
+                        from detectron2.config import instantiate
+
+                        model = instantiate(cfg.model)
+                        # Create a basic CfgNode for the predictor
+                        from detectron2.config import CfgNode
+
+                        cfg_node = CfgNode()
+                        cfg_node.MODEL.DEVICE = str(self.device)
+                        cfg_node.MODEL.WEIGHTS = ""
+                        self.predictor = DefaultPredictor(cfg_node)
+                        self.predictor.model = model.to(self.device)
+                    else:
+                        # Fallback to a working config from model zoo
+                        logger.info("🔄 Using fallback config from model zoo")
+                        cfg.merge_from_file(
+                            model_zoo.get_config_file(
+                                "COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml"
+                            )
+                        )
+                        cfg.MODEL.ROI_HEADS.NUM_CLASSES = self.num_classes
+                        cfg.MODEL.DEVICE = str(self.device)
+                        cfg.MODEL.WEIGHTS = ""  # Don't auto-load weights
+
+                        # Create predictor
+                        self.predictor = DefaultPredictor(cfg)
 
                     # Manually load the weights
                     logger.info("🔄 Loading weights into model...")
