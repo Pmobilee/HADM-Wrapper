@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  hadm-server:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      - DEBUG=false
+      - LOG_LEVEL=INFO
+      - DEVICE=cuda  # Change to 'cpu' if no GPU
+      - PRELOAD_MODELS=true
+      - ENABLE_DOCS=true
+    volumes:
+      # Mount model directory (create this on host)
+      - ./pretrained_models:/app/pretrained_models
+      # Mount logs directory
+      - ./logs:/app/logs
+      # Mount datasets directory if needed
+      - ./datasets:/app/datasets
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: Add nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro  # SSL certificates if needed
+    depends_on:
+      - hadm-server
+    restart: unless-stopped
+    profiles:
+      - production
+
+volumes:
+  model_data:
+  log_data: 

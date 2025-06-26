@@ -39,11 +39,24 @@ HADM Server is a production-ready web service that wraps the [HADM (Human Artifa
 
 ### Prerequisites
 
-- Python 3.8 or higher
-- pip package manager
-- Git
+- **Python 3.8+** with pip
+- **CUDA-capable GPU** (recommended) or CPU
+- **Git** for repository management
+- **4GB+ RAM** for optimal performance
 
-### Installation
+### ⚡ One-Command Setup
+
+```bash
+# Clone and setup everything automatically
+git clone https://github.com/yourusername/HADM_server.git
+cd HADM_server
+chmod +x setup.sh && ./setup.sh
+```
+
+### 🔧 Manual Installation
+
+<details>
+<summary>Click to expand manual setup steps</summary>
 
 1. **Clone the repository**
    ```bash
@@ -51,60 +64,131 @@ HADM Server is a production-ready web service that wraps the [HADM (Human Artifa
    cd HADM_server
    ```
 
-2. **Set up virtual environment**
+2. **Run setup script**
    ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   chmod +x scripts/setup_environment.sh
+   ./scripts/setup_environment.sh
    ```
 
-3. **Install dependencies**
+3. **Download model files**
    ```bash
-   pip install -r requirements.txt
+   ./scripts/download_models.sh
    ```
 
-4. **Run the server**
+4. **Configure environment**
    ```bash
-   uvicorn main:app --host 0.0.0.0 --port 8000
+   cp env.example .env
+   # Edit .env with your settings
    ```
 
-5. **Access the API**
-   - API Documentation: http://localhost:8000/docs
-   - Alternative docs: http://localhost:8000/redoc
-   - Health check: http://localhost:8000/health
+</details>
+
+### 🚀 Launch Options
+
+#### **Development Mode**
+```bash
+source venv/bin/activate
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+#### **Production Mode**
+```bash
+docker-compose up -d
+```
+
+#### **Quick Test**
+```bash
+# Check if everything works
+curl http://localhost:8000/api/v1/health
+```
+
+### 🌐 Access Points
+
+| Service | URL | Description |
+|---------|-----|-------------|
+| **API Documentation** | http://localhost:8000/docs | Interactive Swagger UI |
+| **Alternative Docs** | http://localhost:8000/redoc | ReDoc interface |
+| **Health Check** | http://localhost:8000/api/v1/health | Service status |
+| **Service Info** | http://localhost:8000/api/v1/info | Detailed information |
 
 ## 📋 API Endpoints
 
-### Core Detection Endpoints
+### 🎯 Core Detection Services
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/detect/local` | HADM-L: Local artifact detection |
-| `POST` | `/detect/global` | HADM-G: Global artifact detection |
-| `POST` | `/detect/both` | Run both detection methods |
-| `GET` | `/health` | Health check endpoint |
-| `GET` | `/info` | Service information and version |
+| Method | Endpoint | Purpose | Response Time |
+|--------|----------|---------|---------------|
+| `POST` | `/api/v1/detect/local` | **HADM-L**: Bounding box detection | ~500ms |
+| `POST` | `/api/v1/detect/global` | **HADM-G**: Whole-image classification | ~300ms |
+| `POST` | `/api/v1/detect/both` | **Combined**: Local + Global analysis | ~800ms |
+| `POST` | `/api/v1/detect` | **Universal**: Configurable detection | Variable |
 
-### Example Usage
+### 🔧 Utility Endpoints
 
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| `GET` | `/api/v1/health` | Service health & model status |
+| `GET` | `/api/v1/info` | Detailed service information |
+| `GET` | `/docs` | Interactive API documentation |
+
+### 💡 Usage Examples
+
+#### **Python Client**
 ```python
 import requests
+from pathlib import Path
 
-# Local detection
-with open('image.jpg', 'rb') as f:
-    response = requests.post(
-        'http://localhost:8000/detect/local',
-        files={'image': f}
-    )
-    result = response.json()
-    print(f"Artifact probability: {result['probability']}")
+# Single detection
+def detect_artifacts(image_path: str, detection_type: str = "both"):
+    url = f"http://localhost:8000/api/v1/detect/{detection_type}"
+    
+    with open(image_path, 'rb') as f:
+        response = requests.post(
+            url,
+            files={'image': f},
+            data={'confidence_threshold': 0.7}
+        )
+    
+    return response.json()
+
+# Example usage
+result = detect_artifacts('suspicious_image.jpg')
+print(f"Found {len(result.get('local_detections', []))} local artifacts")
 ```
 
+#### **cURL Commands**
 ```bash
-# Using curl
-curl -X POST "http://localhost:8000/detect/local" \
-     -H "accept: application/json" \
-     -H "Content-Type: multipart/form-data" \
-     -F "image=@your_image.jpg"
+# Local detection with custom threshold
+curl -X POST "http://localhost:8000/api/v1/detect/local" \
+     -F "image=@image.jpg" \
+     -F "confidence_threshold=0.8"
+
+# Global detection
+curl -X POST "http://localhost:8000/api/v1/detect/global" \
+     -F "image=@image.jpg"
+
+# Health check
+curl http://localhost:8000/api/v1/health
+```
+
+#### **JavaScript/Node.js**
+```javascript
+const FormData = require('form-data');
+const fs = require('fs');
+const axios = require('axios');
+
+async function detectArtifacts(imagePath) {
+    const form = new FormData();
+    form.append('image', fs.createReadStream(imagePath));
+    form.append('detection_type', 'both');
+    
+    const response = await axios.post(
+        'http://localhost:8000/api/v1/detect',
+        form,
+        { headers: form.getHeaders() }
+    );
+    
+    return response.data;
+}
 ```
 
 ## 🐳 Docker Deployment
