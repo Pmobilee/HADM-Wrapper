@@ -1,27 +1,50 @@
 #!/usr/bin/env python3
 """
 HADM API Test Script
-Tests the HADM Server API endpoints with a sample cat image.
+Tests the HADM Server API endpoints with a sample cat image or custom test image.
 """
 
 import requests
 import json
 import time
 import os
+import sys
+import argparse
 from urllib.request import urlretrieve
 from pathlib import Path
 
 # Configuration
 API_BASE_URL = "http://localhost:8080/api/v1"
 TEST_IMAGE_URL = "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4d/Cat_November_2010-1a.jpg/1024px-Cat_November_2010-1a.jpg"
-TEST_IMAGE_PATH = "test_cat.jpg"
+DEFAULT_TEST_IMAGE = "test_cat.jpg"
+TEST_IMAGES_DIR = "tests/test_images"
+
+def get_test_image_path(image_name=None):
+    """Get the path to the test image."""
+    if image_name:
+        # Check if it's a custom image from test_images directory
+        test_image_path = os.path.join(TEST_IMAGES_DIR, f"{image_name}.jpg")
+        if os.path.exists(test_image_path):
+            return test_image_path
+        else:
+            print(f"❌ Test image not found: {test_image_path}")
+            # List available test images
+            if os.path.exists(TEST_IMAGES_DIR):
+                print(f"📁 Available test images in {TEST_IMAGES_DIR}:")
+                for file in os.listdir(TEST_IMAGES_DIR):
+                    if file.lower().endswith(('.jpg', '.jpeg', '.png')):
+                        name_without_ext = os.path.splitext(file)[0]
+                        print(f"   - {name_without_ext}")
+            return None
+    else:
+        return DEFAULT_TEST_IMAGE
 
 def download_test_image():
     """Download a test cat image."""
     print(f"📥 Downloading test image from: {TEST_IMAGE_URL}")
     try:
-        urlretrieve(TEST_IMAGE_URL, TEST_IMAGE_PATH)
-        print(f"✅ Test image saved as: {TEST_IMAGE_PATH}")
+        urlretrieve(TEST_IMAGE_URL, DEFAULT_TEST_IMAGE)
+        print(f"✅ Test image saved as: {DEFAULT_TEST_IMAGE}")
         return True
     except Exception as e:
         print(f"❌ Failed to download test image: {e}")
@@ -68,22 +91,23 @@ def test_info_endpoint():
         print(f"❌ Info endpoint error: {e}")
         return False
 
-def test_detection_endpoint(endpoint_path, endpoint_name):
+def test_detection_endpoint(endpoint_path, endpoint_name, test_image_path):
     """Test a detection endpoint."""
     print(f"\n🔬 Testing {endpoint_name} endpoint...")
     
-    if not os.path.exists(TEST_IMAGE_PATH):
-        print(f"❌ Test image not found: {TEST_IMAGE_PATH}")
+    if not os.path.exists(test_image_path):
+        print(f"❌ Test image not found: {test_image_path}")
         return False
     
     try:
-        with open(TEST_IMAGE_PATH, 'rb') as f:
-            files = {'image': (TEST_IMAGE_PATH, f, 'image/jpeg')}
+        with open(test_image_path, 'rb') as f:
+            files = {'image': (os.path.basename(test_image_path), f, 'image/jpeg')}
             data = {
                 'confidence_threshold': 0.3,
                 'max_detections': 50
             }
             
+            print(f"   Using image: {test_image_path}")
             print(f"   Sending request to: {API_BASE_URL}{endpoint_path}")
             start_time = time.time()
             response = requests.post(f"{API_BASE_URL}{endpoint_path}", files=files, data=data)
@@ -141,16 +165,43 @@ def test_detection_endpoint(endpoint_path, endpoint_name):
 
 def main():
     """Main test function."""
+    parser = argparse.ArgumentParser(description='Test HADM API endpoints')
+    parser.add_argument('--image', nargs='?', help='Name of test image (without .jpg extension) from tests/test_images/ directory')
+    parser.add_argument('--list', action='store_true', help='List available test images')
+    
+    args = parser.parse_args()
+    
+    # List available images if requested
+    if args.list:
+        print("📁 Available test images:")
+        if os.path.exists(TEST_IMAGES_DIR):
+            for file in sorted(os.listdir(TEST_IMAGES_DIR)):
+                if file.lower().endswith(('.jpg', '.jpeg', '.png')):
+                    name_without_ext = os.path.splitext(file)[0]
+                    print(f"   - {name_without_ext}")
+        else:
+            print(f"   No test images directory found: {TEST_IMAGES_DIR}")
+        return
+    
     print("🚀 HADM API Test Script")
     print("=" * 50)
     
-    # Download test image
-    if not os.path.exists(TEST_IMAGE_PATH):
+    # Determine which image to use
+    test_image_path = get_test_image_path(args.image)
+    
+    if not test_image_path:
+        return
+    
+    # If using default image and it doesn't exist, download it
+    if test_image_path == DEFAULT_TEST_IMAGE and not os.path.exists(test_image_path):
         if not download_test_image():
             print("❌ Cannot proceed without test image")
             return
+    
+    if args.image:
+        print(f"✅ Using custom test image: {test_image_path}")
     else:
-        print(f"✅ Using existing test image: {TEST_IMAGE_PATH}")
+        print(f"✅ Using default test image: {test_image_path}")
     
     # Test endpoints
     results = []
@@ -162,10 +213,10 @@ def main():
     results.append(("Info", test_info_endpoint()))
     
     # Test detection endpoints
-    results.append(("Local Detection", test_detection_endpoint("/detect/local", "Local")))
-    results.append(("Global Detection", test_detection_endpoint("/detect/global", "Global")))
-    results.append(("Both Detection", test_detection_endpoint("/detect/both", "Both")))
-    results.append(("Unified Detection", test_detection_endpoint("/detect", "Unified")))
+    results.append(("Local Detection", test_detection_endpoint("/detect/local", "Local", test_image_path)))
+    results.append(("Global Detection", test_detection_endpoint("/detect/global", "Global", test_image_path)))
+    results.append(("Both Detection", test_detection_endpoint("/detect/both", "Both", test_image_path)))
+    results.append(("Unified Detection", test_detection_endpoint("/detect", "Unified", test_image_path)))
     
     # Summary
     print("\n" + "=" * 50)
@@ -184,10 +235,10 @@ def main():
     else:
         print("⚠️  Some tests failed. Check the logs above for details.")
     
-    # Cleanup
-    if os.path.exists(TEST_IMAGE_PATH):
-        print(f"\n🧹 Cleaning up test image: {TEST_IMAGE_PATH}")
-        os.remove(TEST_IMAGE_PATH)
+    # Cleanup (only remove default test image, not custom ones)
+    if test_image_path == DEFAULT_TEST_IMAGE and os.path.exists(test_image_path):
+        print(f"\n🧹 Cleaning up test image: {test_image_path}")
+        os.remove(test_image_path)
 
 if __name__ == "__main__":
     main() 

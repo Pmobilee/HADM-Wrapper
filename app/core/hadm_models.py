@@ -18,44 +18,151 @@ if str(HADM_PATH) not in sys.path:
 
 logger = logging.getLogger(__name__)
 
+# Import MMCV fallback BEFORE any HADM imports to prevent import errors
+try:
+    from app.utils.mmcv_fallback import setup_mmcv_fallback
+    setup_mmcv_fallback()
+except ImportError as e:
+    logger.warning(f"Could not import mmcv_fallback: {e}")
+    # Manual fallback setup
+    import sys
+    import types
+    
+    try:
+        import mmcv
+        from mmcv import ops
+        logger.info("✅ MMCV available")
+    except ImportError:
+        logger.warning("⚠️ Setting up manual MMCV fallback")
+        mock_mmcv = types.ModuleType('mmcv')
+        mock_ops = types.ModuleType('mmcv.ops')
+        
+        def fallback_soft_nms(boxes, scores, iou_threshold=0.3, sigma=0.5, min_score=1e-3, method='linear'):
+            import torch
+            from torchvision.ops import nms
+            keep_indices = nms(boxes, scores, iou_threshold)
+            kept_boxes = boxes[keep_indices]
+            kept_scores = scores[keep_indices]
+            dets = torch.cat([kept_boxes, kept_scores.unsqueeze(1)], dim=1)
+            return dets, keep_indices
+        
+        mock_ops.soft_nms = fallback_soft_nms
+        mock_mmcv.ops = mock_ops
+        mock_mmcv.__version__ = "fallback"
+        sys.modules['mmcv'] = mock_mmcv
+        sys.modules['mmcv.ops'] = mock_ops
+
 # Try to import dependencies - handle gracefully if not available
 DEPENDENCIES_AVAILABLE = True
 HADM_CONFIGS_AVAILABLE = False
+MMCV_AVAILABLE = False
+DETECTRON2_AVAILABLE = False
 
+# Check each dependency separately with detailed logging
 try:
     import torch
-    logger.info(f"PyTorch version: {torch.__version__}")
-    logger.info(f"CUDA available: {torch.cuda.is_available()}")
-    
+    logger.info(f"✅ PyTorch version: {torch.__version__}")
+    logger.info(f"✅ CUDA available: {torch.cuda.is_available()}")
+except ImportError as e:
+    logger.error(f"❌ PyTorch not available: {e}")
+    DEPENDENCIES_AVAILABLE = False
+
+try:
     import detectron2
-    logger.info(f"Detectron2 version: {detectron2.__version__}")
+    logger.info(f"✅ Detectron2 version: {detectron2.__version__}")
+    DETECTRON2_AVAILABLE = True
     
     from detectron2.config import get_cfg, CfgNode
     from detectron2.engine import DefaultPredictor
     from detectron2.data import MetadataCatalog
     from detectron2.utils.visualizer import Visualizer, ColorMode
     from detectron2.config import LazyConfig
+    logger.info("✅ Detectron2 modules imported successfully")
     
-    # Try to import HADM specific configs
+except ImportError as e:
+    logger.error(f"❌ Detectron2 not available: {e}")
+    DEPENDENCIES_AVAILABLE = False
+    DETECTRON2_AVAILABLE = False
+
+# Check MMCV separately
+try:
+    import mmcv
+    logger.info(f"✅ MMCV version: {mmcv.__version__}")
+    MMCV_AVAILABLE = True
+    
+    # Test mmcv ops
     try:
-        from projects.ViTDet.configs.eva2_o365_to_coco.demo_local import model as local_model_config
-        from projects.ViTDet.configs.eva2_o365_to_coco.demo_global import model as global_model_config
-        HADM_CONFIGS_AVAILABLE = True
-        logger.info("HADM configurations loaded successfully")
+        from mmcv import ops
+        logger.info("✅ MMCV ops available")
     except ImportError as e:
-        logger.warning(f"HADM configurations not available: {e}")
-        HADM_CONFIGS_AVAILABLE = False
-        
-    logger.info("All core dependencies loaded successfully")
+        logger.warning(f"⚠️ MMCV ops not available: {e}")
+        logger.warning("This may cause issues with HADM models that use soft-NMS")
         
 except ImportError as e:
-    logger.error(f"Core dependencies not available: {e}")
-    DEPENDENCIES_AVAILABLE = False
-    HADM_CONFIGS_AVAILABLE = False
+    logger.warning(f"⚠️ MMCV not available: {e}")
+    logger.warning("HADM models may work without MMCV, but some features may be limited")
+    MMCV_AVAILABLE = False
+
+# Try to import HADM specific configs
+if DEPENDENCIES_AVAILABLE and DETECTRON2_AVAILABLE:
+    try:
+        logger.info("Attempting to import HADM configurations...")
+        
+        # Test basic HADM path access
+        hadm_projects_path = HADM_PATH / "projects"
+        if not hadm_projects_path.exists():
+            logger.error(f"❌ HADM projects directory not found: {hadm_projects_path}")
+            raise ImportError(f"HADM projects directory not found: {hadm_projects_path}")
+        
+        vitdet_path = hadm_projects_path / "ViTDet" / "configs" / "eva2_o365_to_coco"
+        if not vitdet_path.exists():
+            logger.error(f"❌ HADM ViTDet configs not found: {vitdet_path}")
+            raise ImportError(f"HADM ViTDet configs not found: {vitdet_path}")
+        
+        # Try importing the configs
+        from projects.ViTDet.configs.eva2_o365_to_coco.demo_local import model as local_model_config
+        logger.info("✅ HADM local config imported successfully")
+        
+        from projects.ViTDet.configs.eva2_o365_to_coco.demo_global import model as global_model_config
+        logger.info("✅ HADM global config imported successfully")
+        
+        HADM_CONFIGS_AVAILABLE = True
+        logger.info("✅ All HADM configurations loaded successfully")
+        
+    except ImportError as e:
+        logger.error(f"❌ HADM configurations not available: {e}")
+        logger.error(f"Error details: {str(e)}")
+        logger.error(f"HADM_PATH: {HADM_PATH}")
+        logger.error(f"HADM exists: {HADM_PATH.exists()}")
+        
+        # Log Python path for debugging
+        logger.error(f"Python path includes HADM: {str(HADM_PATH) in sys.path}")
+        logger.error(f"Current working directory: {os.getcwd()}")
+        
+        HADM_CONFIGS_AVAILABLE = False
+    except Exception as e:
+        logger.error(f"❌ Unexpected error loading HADM configurations: {e}")
+        logger.error(f"Error type: {type(e).__name__}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        HADM_CONFIGS_AVAILABLE = False
+
+# Final dependency check
+if DEPENDENCIES_AVAILABLE:
+    logger.info("✅ All core dependencies loaded successfully")
+else:
+    logger.error("❌ Some core dependencies are missing")
+
+# Log final status
+logger.info(f"Dependency Status Summary:")
+logger.info(f"  - PyTorch: {'✅' if 'torch' in sys.modules else '❌'}")
+logger.info(f"  - Detectron2: {'✅' if DETECTRON2_AVAILABLE else '❌'}")
+logger.info(f"  - MMCV: {'✅' if MMCV_AVAILABLE else '❌'}")
+logger.info(f"  - HADM Configs: {'✅' if HADM_CONFIGS_AVAILABLE else '❌'}")
+logger.info(f"  - Overall: {'✅' if DEPENDENCIES_AVAILABLE else '❌'}")
 
 from app.core.config import settings
 from app.models.schemas import LocalDetection, GlobalDetection, BoundingBox
-
 
 class HADMModelBase:
     """Base class for HADM models."""
@@ -160,25 +267,28 @@ class HADMLocalModel(HADMModelBase):
             try:
                 # Try to load model weights (handle PyTorch 2.6 weights_only issue)
                 model_state = torch.load(model_path, map_location=self.device, weights_only=False)
-                logger.info(f"Model state loaded successfully, keys: {len(model_state.keys()) if isinstance(model_state, dict) else 'Not a dict'}")
+                logger.info(f"✅ Model state loaded successfully, keys: {len(model_state.keys()) if isinstance(model_state, dict) else 'Not a dict'}")
                 
                 # Show model structure
                 if isinstance(model_state, dict):
                     if 'model' in model_state:
-                        logger.info("Model contains 'model' key")
+                        logger.info("✅ Model contains 'model' key")
                     if 'ema' in model_state:
-                        logger.info("Model contains 'ema' key (EMA weights)")
+                        logger.info("✅ Model contains 'ema' key (EMA weights)")
                 
             except Exception as e:
-                logger.error(f"Failed to load model weights: {e}")
+                logger.error(f"❌ Failed to load model weights: {e}")
                 return False
             
-            # Create configuration
-            if HADM_CONFIGS_AVAILABLE:
-                # Use HADM configuration
+            # Try different configuration approaches in order of preference
+            predictor_created = False
+            
+            # Approach 1: Use HADM configuration if available
+            if HADM_CONFIGS_AVAILABLE and not predictor_created:
                 try:
+                    logger.info("Attempting HADM LazyConfig approach...")
                     cfg = LazyConfig.load_config(str(HADM_PATH / "projects/ViTDet/configs/eva2_o365_to_coco/demo_local.py"))
-                    logger.info("HADM LazyConfig loaded successfully")
+                    logger.info("✅ HADM LazyConfig loaded successfully")
                     
                     # Convert LazyConfig to standard config for predictor
                     cfg_dict = LazyConfig.to_py(cfg.model)
@@ -194,10 +304,45 @@ class HADMLocalModel(HADMModelBase):
                     cfg.INPUT.MIN_SIZE_TEST = 1024
                     cfg.INPUT.MAX_SIZE_TEST = 1024
                     
-                    logger.info("Using HADM configuration for local model")
+                    # Try to create predictor
+                    self.predictor = DefaultPredictor(cfg)
+                    predictor_created = True
+                    logger.info("✅ Using HADM configuration for local model")
+                    
                 except Exception as e:
-                    logger.error(f"Failed to load HADM config: {e}")
-                    return self._load_simplified_model(model_path)
+                    logger.warning(f"⚠️ HADM config approach failed: {e}")
+                    predictor_created = False
+            
+            # Approach 2: Use basic detectron2 configuration
+            if not predictor_created:
+                try:
+                    logger.info("Attempting basic detectron2 configuration...")
+                    cfg = get_cfg()
+                    
+                    # Basic model configuration
+                    cfg.MODEL.DEVICE = self.device
+                    cfg.MODEL.WEIGHTS = model_path
+                    cfg.MODEL.ROI_HEADS.NUM_CLASSES = self.num_classes
+                    cfg.MODEL.META_ARCHITECTURE = "GeneralizedRCNN"
+                    
+                    # Input configuration
+                    cfg.INPUT.FORMAT = "BGR"
+                    cfg.INPUT.MIN_SIZE_TEST = 1024
+                    cfg.INPUT.MAX_SIZE_TEST = 1024
+                    
+                    # Try to create predictor
+                    self.predictor = DefaultPredictor(cfg)
+                    predictor_created = True
+                    logger.info("✅ Using basic detectron2 configuration")
+                    
+                except Exception as e:
+                    logger.warning(f"⚠️ Basic detectron2 config failed: {e}")
+                    predictor_created = False
+            
+            # Approach 3: Simplified model loading (fallback)
+            if not predictor_created:
+                logger.info("Falling back to simplified model loading...")
+                return self._load_simplified_model(model_path)
             else:
                 # Fallback to basic configuration
                 logger.warning("Using fallback configuration for local model")

@@ -18,6 +18,14 @@ HADM_PATH = Path(__file__).parent.parent / "HADM"
 if str(HADM_PATH) not in sys.path:
     sys.path.insert(0, str(HADM_PATH))
 
+# Setup MMCV fallback before any HADM imports
+try:
+    from app.utils.mmcv_fallback import setup_mmcv_fallback
+    setup_mmcv_fallback()
+except ImportError:
+    # Manual fallback if the module doesn't exist yet
+    pass
+
 from app.core.config import settings
 from app.core.hadm_models import model_manager
 from app.api.endpoints import router, http_exception_handler
