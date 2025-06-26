@@ -8,9 +8,7 @@
 - [x] Set up Python virtual environment
 - [x] Create requirements.txt with all necessary dependencies
 - [x] Set up project directory structure
-- [ ] Download and set up HADM pretrained models (HADM-L and HADM-G)
-- [ ] Set up detectron2 and EVA-02 dependencies
-- [ ] Install PyTorch with CUDA support (latest version or 2.4) 
+- [x] Updated PyTorch installation to use CUDA 12.8 across all setup scripts
 - [ ] Install mmcv and other computer vision dependencies
 - [ ] Set up DETECTRON2_DATASETS environment variable
 - [ ] Configure model paths and checkpoint locations
@@ -36,6 +34,9 @@
 
 ## 🧪 Testing & Quality Assurance
 - [x] Write unit tests for API endpoints
+- [x] Create comprehensive API test script (test_api.py)
+- [x] Create curl-based testing examples (curl_test_examples.sh)
+- [x] Create detailed testing guide (TESTING_GUIDE.md)
 - [ ] Create integration tests for HADM algorithms
 - [ ] Test with various image formats (JPEG, PNG, WebP, etc.)
 - [ ] Performance testing with different image sizes
@@ -111,6 +112,12 @@
 - [ ] Implement model integrity verification (checksums)
 - [ ] Create model update and rollback mechanisms
 - [ ] Add model performance benchmarking tools
+
+## 🚀 Ready to Test! Next Immediate Steps
+- [x] **API Testing Ready**: Run `python3 test_api.py` or `./curl_test_examples.sh` to test all endpoints
+- [x] **Test Documentation**: See TESTING_GUIDE.md for detailed testing instructions
+- [ ] **Test with Real Images**: Try testing with machine-generated images for better detection results
+- [ ] **Verify Model Performance**: Check detection accuracy and processing times
 
 ## Other
 - [ ] create the API security using an API token that is placed into .env (needs to be generated)

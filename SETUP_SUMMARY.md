@@ -60,7 +60,7 @@
   - HADM-G: Global classification (12 classes)
 
 ### Required Dependencies
-- PyTorch 1.12.1 with CUDA 11.6
+- PyTorch with CUDA 12.8
 - Detectron2 (custom version from HADM)
 - xformers 0.0.18
 - mmcv 1.7.1

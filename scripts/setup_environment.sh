@@ -21,7 +21,7 @@ pip install --upgrade pip
 
 # Install PyTorch with CUDA support
 echo "🔥 Installing PyTorch with CUDA support..."
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 
 # Install xformers
 echo "🚀 Installing xformers..."

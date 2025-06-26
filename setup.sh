@@ -72,7 +72,7 @@ print_success "Pip upgraded"
 
 # Step 4: Install PyTorch with CUDA support
 print_status "Installing PyTorch with CUDA support..."
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 print_success "PyTorch installed"
 
 # Step 5: Install other requirements
