@@ -161,12 +161,16 @@ class HADMModelBase:
             if isinstance(model_state, dict):
                 logger.info(f"📊 Model keys: {len(model_state.keys())}")
 
-                # Calculate total parameters
-                total_params = 0
-                for key, tensor in model_state.items():
-                    if isinstance(tensor, torch.Tensor):
-                        total_params += tensor.numel()
+                # Correctly access the model's state dict
+                actual_model_state = model_state.get('model', model_state)
+                if not isinstance(actual_model_state, dict):
+                    logger.warning("⚠️ 'model' key does not contain a state dictionary. Cannot calculate stats.")
+                    return model_state
 
+                # Calculate total parameters from the actual model state
+                total_params = sum(
+                    tensor.numel() for tensor in actual_model_state.values() if isinstance(tensor, torch.Tensor)
+                )
                 logger.info(f"📊 Total parameters: {total_params:,}")
 
                 # Show key information
@@ -179,10 +183,10 @@ class HADMModelBase:
                 keys = list(model_state.keys())[:5]
                 logger.info(f"🗝️ First keys: {keys}")
 
-                # Calculate memory usage
+                # Calculate memory usage from the actual model state
                 total_size_mb = sum(
                     tensor.numel() * tensor.element_size()
-                    for tensor in model_state.values()
+                    for tensor in actual_model_state.values()
                     if isinstance(tensor, torch.Tensor)
                 ) / (1024 * 1024)
                 logger.info(f"💾 Model size: {total_size_mb:.1f} MB")
@@ -275,8 +279,9 @@ class HADMLocalModel(HADMModelBase):
                         # For .py configs, we need to use LazyConfig
                         from detectron2.config import LazyConfig
 
-                        cfg = LazyConfig.load_config(hadm_config_path)
-                        cfg.model.device = str(self.device)
+                        cfg = LazyConfig.load(hadm_config_path)
+                        if hasattr(cfg, "model") and hasattr(cfg.model, "device"):
+                            cfg.model.device = str(self.device)
                         # Convert LazyConfig to CfgNode for compatibility
                         from detectron2.config import instantiate
 
@@ -290,16 +295,86 @@ class HADMLocalModel(HADMModelBase):
                         self.predictor = DefaultPredictor(cfg_node)
                         self.predictor.model = model.to(self.device)
                     else:
-                        # Fallback to a working config from model zoo
-                        logger.info("🔄 Using fallback config from model zoo")
-                        cfg.merge_from_file(
-                            model_zoo.get_config_file(
-                                "COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml"
-                            )
+                        # Fallback to a working config from HADM's own configs
+                        logger.info("🔄 Using fallback config from HADM configs")
+
+                        # Use HADM's own config files instead of model zoo
+                        config_file = (
+                            "HADM/configs/COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml"
                         )
+                        if os.path.exists(config_file):
+                            logger.info(f"✅ Using HADM config: {config_file}")
+                            cfg.merge_from_file(config_file)
+                        else:
+                            # Try without HADM prefix
+                            config_file = (
+                                "configs/COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml"
+                            )
+                            if os.path.exists(config_file):
+                                logger.info(f"✅ Using config: {config_file}")
+                                cfg.merge_from_file(config_file)
+                            else:
+                                logger.warning(
+                                    "❌ No suitable config file found - using minimal config"
+                                )
+                                # Create minimal config
+                                cfg.MODEL.META_ARCHITECTURE = "GeneralizedRCNN"
+                                cfg.MODEL.BACKBONE.NAME = "build_resnet_fpn_backbone"
+                                cfg.MODEL.RESNETS.DEPTH = 50
+                                cfg.MODEL.FPN.IN_FEATURES = [
+                                    "res2",
+                                    "res3",
+                                    "res4",
+                                    "res5",
+                                ]
+                                cfg.MODEL.ANCHOR_GENERATOR.SIZES = [
+                                    [32],
+                                    [64],
+                                    [128],
+                                    [256],
+                                    [512],
+                                ]
+                                cfg.MODEL.ANCHOR_GENERATOR.ASPECT_RATIOS = [
+                                    [0.5, 1.0, 2.0]
+                                ]
+                                cfg.MODEL.RPN.IN_FEATURES = [
+                                    "p2",
+                                    "p3",
+                                    "p4",
+                                    "p5",
+                                    "p6",
+                                ]
+                                cfg.MODEL.ROI_HEADS.IN_FEATURES = [
+                                    "p2",
+                                    "p3",
+                                    "p4",
+                                    "p5",
+                                ]
+
                         cfg.MODEL.ROI_HEADS.NUM_CLASSES = self.num_classes
                         cfg.MODEL.DEVICE = str(self.device)
                         cfg.MODEL.WEIGHTS = ""  # Don't auto-load weights
+
+                        # Add HADM-specific configurations that are missing
+                        logger.info("🔧 Adding HADM-specific configurations...")
+
+                        # Add missing ROI_BOX_HEAD configurations
+                        if not hasattr(cfg.MODEL, "ROI_BOX_HEAD"):
+                            cfg.MODEL.ROI_BOX_HEAD = type(cfg.MODEL)()
+
+                        # Set all the missing attributes that HADM expects
+                        cfg.MODEL.ROI_BOX_HEAD.MULTI_LABEL = (
+                            False  # This was the main missing attribute
+                        )
+                        cfg.MODEL.ROI_BOX_HEAD.USE_FED_LOSS = False
+                        cfg.MODEL.ROI_BOX_HEAD.USE_SIGMOID_CE = False
+                        cfg.MODEL.ROI_BOX_HEAD.FED_LOSS_FREQ_WEIGHT_POWER = 0.5
+                        cfg.MODEL.ROI_BOX_HEAD.FED_LOSS_NUM_CLASSES = 50
+
+                        # Add other potentially missing configurations
+                        if not hasattr(cfg, "DATASETS"):
+                            cfg.DATASETS = type(cfg)()
+                            cfg.DATASETS.TRAIN = ("coco_2017_train",)
 
                         # Create predictor
                         self.predictor = DefaultPredictor(cfg)
@@ -472,8 +547,11 @@ class HADMGlobalModel(HADMModelBase):
                         # For .py configs, we need to use LazyConfig
                         from detectron2.config import LazyConfig
 
-                        cfg = LazyConfig.load_config(hadm_config_path)
-                        cfg.model.device = str(self.device)
+                        cfg = LazyConfig.load(
+                            hadm_config_path
+                        )  # Fixed: use .load instead of .load_config
+                        if hasattr(cfg, "model") and hasattr(cfg.model, "device"):
+                            cfg.model.device = str(self.device)
                         # Convert LazyConfig to CfgNode for compatibility
                         from detectron2.config import instantiate
 
@@ -487,16 +565,86 @@ class HADMGlobalModel(HADMModelBase):
                         self.predictor = DefaultPredictor(cfg_node)
                         self.predictor.model = model.to(self.device)
                     else:
-                        # Fallback to a working config from model zoo
-                        logger.info("🔄 Using fallback config from model zoo")
-                        cfg.merge_from_file(
-                            model_zoo.get_config_file(
-                                "COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml"
-                            )
+                        # Fallback to a working config from HADM's own configs
+                        logger.info("🔄 Using fallback config from HADM configs")
+
+                        # Use HADM's own config files instead of model zoo
+                        config_file = (
+                            "HADM/configs/COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml"
                         )
+                        if os.path.exists(config_file):
+                            logger.info(f"✅ Using HADM config: {config_file}")
+                            cfg.merge_from_file(config_file)
+                        else:
+                            # Try without HADM prefix
+                            config_file = (
+                                "configs/COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml"
+                            )
+                            if os.path.exists(config_file):
+                                logger.info(f"✅ Using config: {config_file}")
+                                cfg.merge_from_file(config_file)
+                            else:
+                                logger.warning(
+                                    "❌ No suitable config file found - using minimal config"
+                                )
+                                # Create minimal config
+                                cfg.MODEL.META_ARCHITECTURE = "GeneralizedRCNN"
+                                cfg.MODEL.BACKBONE.NAME = "build_resnet_fpn_backbone"
+                                cfg.MODEL.RESNETS.DEPTH = 50
+                                cfg.MODEL.FPN.IN_FEATURES = [
+                                    "res2",
+                                    "res3",
+                                    "res4",
+                                    "res5",
+                                ]
+                                cfg.MODEL.ANCHOR_GENERATOR.SIZES = [
+                                    [32],
+                                    [64],
+                                    [128],
+                                    [256],
+                                    [512],
+                                ]
+                                cfg.MODEL.ANCHOR_GENERATOR.ASPECT_RATIOS = [
+                                    [0.5, 1.0, 2.0]
+                                ]
+                                cfg.MODEL.RPN.IN_FEATURES = [
+                                    "p2",
+                                    "p3",
+                                    "p4",
+                                    "p5",
+                                    "p6",
+                                ]
+                                cfg.MODEL.ROI_HEADS.IN_FEATURES = [
+                                    "p2",
+                                    "p3",
+                                    "p4",
+                                    "p5",
+                                ]
+
                         cfg.MODEL.ROI_HEADS.NUM_CLASSES = self.num_classes
                         cfg.MODEL.DEVICE = str(self.device)
                         cfg.MODEL.WEIGHTS = ""  # Don't auto-load weights
+
+                        # Add HADM-specific configurations that are missing
+                        logger.info("🔧 Adding HADM-specific configurations...")
+
+                        # Add missing ROI_BOX_HEAD configurations
+                        if not hasattr(cfg.MODEL, "ROI_BOX_HEAD"):
+                            cfg.MODEL.ROI_BOX_HEAD = type(cfg.MODEL)()
+
+                        # Set all the missing attributes that HADM expects
+                        cfg.MODEL.ROI_BOX_HEAD.MULTI_LABEL = (
+                            False  # This was the main missing attribute
+                        )
+                        cfg.MODEL.ROI_BOX_HEAD.USE_FED_LOSS = False
+                        cfg.MODEL.ROI_BOX_HEAD.USE_SIGMOID_CE = False
+                        cfg.MODEL.ROI_BOX_HEAD.FED_LOSS_FREQ_WEIGHT_POWER = 0.5
+                        cfg.MODEL.ROI_BOX_HEAD.FED_LOSS_NUM_CLASSES = 50
+
+                        # Add other potentially missing configurations
+                        if not hasattr(cfg, "DATASETS"):
+                            cfg.DATASETS = type(cfg)()
+                            cfg.DATASETS.TRAIN = ("coco_2017_train",)
 
                         # Create predictor
                         self.predictor = DefaultPredictor(cfg)

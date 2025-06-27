@@ -13,16 +13,38 @@ import time
 import cv2
 import numpy as np
 from pathlib import Path
+import torch
+
+# Setup mmcv fallback BEFORE any HADM imports
+sys.path.insert(0, str(Path(__file__).parent / "app"))
+from utils.mmcv_fallback import setup_mmcv_fallback
+
+setup_mmcv_fallback()
 
 # Add HADM to Python path
 HADM_PATH = Path(__file__).parent / "HADM"
 sys.path.insert(0, str(HADM_PATH))
 
-# Import HADM components
-from demo.predictor import VisualizationDemo
-from detectron2.config import get_cfg, LazyConfig
-from detectron2 import model_zoo
-from detectron2.utils.visualizer import ColorMode
+# Now safely import HADM components
+try:
+    from demo.predictor import VisualizationDemo
+    from detectron2.config import get_cfg
+    from detectron2 import model_zoo
+    from detectron2.utils.visualizer import ColorMode
+
+    # Try to import LazyConfig - this might not be available in older detectron2
+    try:
+        from detectron2.config import LazyConfig
+
+        LAZY_CONFIG_AVAILABLE = True
+    except ImportError:
+        print("⚠️ LazyConfig not available - using standard config only")
+        LAZY_CONFIG_AVAILABLE = False
+
+except ImportError as e:
+    print(f"❌ Failed to import HADM components: {e}")
+    print("Make sure HADM directory exists and contains the required files")
+    sys.exit(1)
 
 # Configuration
 TEST_IMAGES_DIR = "tests/test_images"
@@ -33,41 +55,38 @@ def setup_hadm_local_config():
     print("🔧 Setting up HADM Local configuration...")
 
     try:
-        # Try to use the actual HADM config
-        config_path = "projects/ViTDet/configs/eva2_o365_to_coco/demo_local.py"
-        if os.path.exists(config_path):
-            print(f"✅ Found HADM config: {config_path}")
-            cfg = LazyConfig.load_config(config_path)
+        if LAZY_CONFIG_AVAILABLE:
+            # Correct path relative to the HADM root
+            config_path = HADM_PATH / "projects/ViTDet/configs/eva2_o365_to_coco/demo_local.py"
+            if config_path.exists():
+                print(f"✅ Found HADM config: {config_path}")
+                cfg = LazyConfig.load(str(config_path))
 
-            # Set device
-            cfg.model.device = "cuda" if os.system("nvidia-smi") == 0 else "cpu"
+                # Set device and weights
+                cfg.train.device = "cuda" if torch.cuda.is_available() else "cpu"
+                
+                model_paths = [
+                    "/home/pretrained_models/HADM-L_0249999.pth",
+                    "./pretrained_models/HADM-L_0249999.pth",
+                    "pretrained_models/HADM-L_0249999.pth",
+                ]
+                
+                model_path = next((p for p in model_paths if os.path.exists(p)), None)
 
-            # Set model weights path
-            model_paths = [
-                "/home/pretrained_models/HADM-L_0249999.pth",
-                "./pretrained_models/HADM-L_0249999.pth",
-                "pretrained_models/HADM-L_0249999.pth",
-            ]
-
-            model_path = None
-            for path in model_paths:
-                if os.path.exists(path):
-                    model_path = path
-                    break
-
-            if model_path:
-                print(f"✅ Found model weights: {model_path}")
-                cfg.model.weights = model_path
+                if model_path:
+                    print(f"✅ Found model weights: {model_path}")
+                    cfg.model.weights = model_path
+                else:
+                    print(f"❌ No model weights found in: {model_paths}")
+                    return setup_fallback_config("local")
+                
+                return cfg
             else:
-                print(f"❌ No model weights found in: {model_paths}")
-                return None
-
-            return cfg
-
+                print(f"❌ HADM config not found: {config_path}")
         else:
-            print(f"❌ HADM config not found: {config_path}")
-            # Fallback to standard detectron2 config
-            return setup_fallback_config("local")
+            print("⚠️ LazyConfig not available - using fallback config")
+
+        return setup_fallback_config("local")
 
     except Exception as e:
         print(f"❌ Error setting up HADM config: {e}")
@@ -79,40 +98,38 @@ def setup_hadm_global_config():
     print("🔧 Setting up HADM Global configuration...")
 
     try:
-        # Try to use the actual HADM config
-        config_path = "projects/ViTDet/configs/eva2_o365_to_coco/demo_global.py"
-        if os.path.exists(config_path):
-            print(f"✅ Found HADM config: {config_path}")
-            cfg = LazyConfig.load_config(config_path)
+        if LAZY_CONFIG_AVAILABLE:
+            # Correct path relative to the HADM root
+            config_path = HADM_PATH / "projects/ViTDet/configs/eva2_o365_to_coco/demo_global.py"
+            if config_path.exists():
+                print(f"✅ Found HADM config: {config_path}")
+                cfg = LazyConfig.load(str(config_path))
 
-            # Set device
-            cfg.model.device = "cuda" if os.system("nvidia-smi") == 0 else "cpu"
+                # Set device and weights
+                cfg.train.device = "cuda" if torch.cuda.is_available() else "cpu"
 
-            # Set model weights path
-            model_paths = [
-                "/home/pretrained_models/HADM-G_0249999.pth",
-                "./pretrained_models/HADM-G_0249999.pth",
-                "pretrained_models/HADM-G_0249999.pth",
-            ]
+                model_paths = [
+                    "/home/pretrained_models/HADM-G_0249999.pth",
+                    "./pretrained_models/HADM-G_0249999.pth",
+                    "pretrained_models/HADM-G_0249999.pth",
+                ]
 
-            model_path = None
-            for path in model_paths:
-                if os.path.exists(path):
-                    model_path = path
-                    break
+                model_path = next((p for p in model_paths if os.path.exists(p)), None)
 
-            if model_path:
-                print(f"✅ Found model weights: {model_path}")
-                cfg.model.weights = model_path
+                if model_path:
+                    print(f"✅ Found model weights: {model_path}")
+                    cfg.model.weights = model_path
+                else:
+                    print(f"❌ No model weights found in: {model_paths}")
+                    return setup_fallback_config("global")
+                
+                return cfg
             else:
-                print(f"❌ No model weights found in: {model_paths}")
-                return None
-
-            return cfg
-
+                print(f"❌ HADM config not found: {config_path}")
         else:
-            print(f"❌ HADM config not found: {config_path}")
-            return setup_fallback_config("global")
+            print("⚠️ LazyConfig not available - using fallback config")
+
+        return setup_fallback_config("global")
 
     except Exception as e:
         print(f"❌ Error setting up HADM config: {e}")
@@ -124,12 +141,57 @@ def setup_fallback_config(model_type):
     print(f"🔄 Setting up fallback config for {model_type}...")
 
     cfg = get_cfg()
-    cfg.merge_from_file(
-        model_zoo.get_config_file("COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml")
-    )
+
+    # Use a config that actually exists in the HADM detectron2 installation
+    try:
+        # Try to use HADM's own config files
+        config_file = "HADM/configs/COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml"
+        if os.path.exists(config_file):
+            print(f"✅ Using HADM config: {config_file}")
+            cfg.merge_from_file(config_file)
+        else:
+            # Try without HADM prefix (if we're in the right directory)
+            config_file = "configs/COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml"
+            if os.path.exists(config_file):
+                print(f"✅ Using config: {config_file}")
+                cfg.merge_from_file(config_file)
+            else:
+                print("❌ No suitable config file found - using minimal config")
+                # Create a minimal working config
+                cfg.MODEL.META_ARCHITECTURE = "GeneralizedRCNN"
+                cfg.MODEL.BACKBONE.NAME = "build_resnet_fpn_backbone"
+                cfg.MODEL.RESNETS.DEPTH = 50
+                cfg.MODEL.FPN.IN_FEATURES = ["res2", "res3", "res4", "res5"]
+                cfg.MODEL.ANCHOR_GENERATOR.SIZES = [[32], [64], [128], [256], [512]]
+                cfg.MODEL.ANCHOR_GENERATOR.ASPECT_RATIOS = [[0.5, 1.0, 2.0]]
+                cfg.MODEL.RPN.IN_FEATURES = ["p2", "p3", "p4", "p5", "p6"]
+                cfg.MODEL.ROI_HEADS.IN_FEATURES = ["p2", "p3", "p4", "p5"]
+
+    except Exception as e:
+        print(f"⚠️ Error loading config file: {e}")
+        print("Using minimal config")
 
     # Set device
     cfg.MODEL.DEVICE = "cuda" if os.system("nvidia-smi") == 0 else "cpu"
+
+    # Add HADM-specific configurations that are missing
+    print("🔧 Adding HADM-specific configurations...")
+
+    # Add missing ROI_BOX_HEAD configurations
+    if not hasattr(cfg.MODEL, "ROI_BOX_HEAD"):
+        cfg.MODEL.ROI_BOX_HEAD = type(cfg.MODEL)()
+
+    # Set all the missing attributes that HADM expects
+    cfg.MODEL.ROI_BOX_HEAD.MULTI_LABEL = False  # This was the main missing attribute
+    cfg.MODEL.ROI_BOX_HEAD.USE_FED_LOSS = False
+    cfg.MODEL.ROI_BOX_HEAD.USE_SIGMOID_CE = False
+    cfg.MODEL.ROI_BOX_HEAD.FED_LOSS_FREQ_WEIGHT_POWER = 0.5
+    cfg.MODEL.ROI_BOX_HEAD.FED_LOSS_NUM_CLASSES = 50
+
+    # Add other potentially missing configurations
+    if not hasattr(cfg, "DATASETS"):
+        cfg.DATASETS = type(cfg)()
+        cfg.DATASETS.TRAIN = ("coco_2017_train",)
 
     # Set model weights
     model_name = f"HADM-{'L' if model_type == 'local' else 'G'}_0249999.pth"
@@ -154,10 +216,11 @@ def setup_fallback_config(model_type):
 
     # Adjust number of classes for HADM
     if model_type == "local":
-        cfg.MODEL.ROI_HEADS.NUM_CLASSES = 8  # HADM-L classes
+        cfg.MODEL.ROI_HEADS.NUM_CLASSES = 6  # HADM-L classes
     else:
         cfg.MODEL.ROI_HEADS.NUM_CLASSES = 12  # HADM-G classes
 
+    print(f"✅ Configuration setup complete for {model_type} model")
     return cfg
 
 
@@ -264,8 +327,6 @@ def test_predictor_on_image(image_path, model_type="local"):
 
         # Memory usage
         try:
-            import torch
-
             if torch.cuda.is_available():
                 memory_allocated = torch.cuda.memory_allocated() / 1024**3  # GB
                 memory_reserved = torch.cuda.memory_reserved() / 1024**3  # GB
