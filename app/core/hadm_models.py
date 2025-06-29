@@ -110,6 +110,8 @@ from app.models.schemas import (
     KeypointData,
     ConfidenceMetrics,
     DensePoseData,
+    ModelStatus,
+    GPUInfo,
 )
 
 
@@ -124,6 +126,8 @@ class HADMModelBase:
         self.is_loaded = False
         self.simplified_mode = False
         self.class_names = []
+        self.model_path: Optional[str] = None
+        self.model_size_mb: Optional[float] = None
 
     def _setup_device(self):
         """Setup compute device."""
@@ -148,6 +152,7 @@ class HADMModelBase:
         """Load model weights directly using the successful approach from diagnose_models.py"""
         try:
             logger.info(f"🔄 Loading model weights directly from {model_path}")
+            self.model_path = model_path
 
             # Use the same approach as diagnose_models.py - weights_only=False for trusted files
             device_str = "cuda" if torch.cuda.is_available() else "cpu"
@@ -190,6 +195,7 @@ class HADMModelBase:
                     if isinstance(tensor, torch.Tensor)
                 ) / (1024 * 1024)
                 logger.info(f"💾 Model size: {total_size_mb:.1f} MB")
+                self.model_size_mb = round(total_size_mb, 1)
 
             return model_state
 
@@ -249,191 +255,50 @@ class HADMLocalModel(HADMModelBase):
                 self.simplified_mode = True
                 self.is_loaded = True
                 return True
+            
+            self.model_path = model_path
+            logger.info(f"Found HADM-L model at: {self.model_path}")
 
-            logger.info(f"📁 Found model weights at {model_path}")
+            # Use LazyConfig for model configuration
+            cfg = LazyConfig.load_file(f"{str(HADM_PATH)}/configs/HADM/HADM_L.py")
 
-            # Load model weights directly using the successful approach
-            try:
-                model_state = self.load_model_weights_directly(model_path)
+            # Build the model
+            self.model = build_model(cfg.model)
+            self.model.to(self.device)
+            self.model.eval()
 
-                # Create a minimal configuration that won't conflict with the loaded weights
-                cfg = get_cfg()
-                cfg.MODEL.DEVICE = str(self.device)
+            # Load weights directly
+            model_state = self.load_model_weights_directly(self.model_path)
+            
+            # Use DetectionCheckpointer to load state
+            checkpointer = DetectionCheckpointer(self.model)
+            
+            # Try to load 'model' key, fall back to the whole dict
+            if 'model' in model_state:
+                checkpointer.load(self.model_path) # Let checkpointer handle it
+                logger.info("Loaded weights using DetectionCheckpointer from 'model' key.")
+            else:
+                # This path may be needed if weights are not in 'model' sub-dict
+                self.model.load_state_dict(model_state, strict=False)
+                logger.info("Loaded weights directly using model.load_state_dict().")
 
-                # Don't set MODEL.WEIGHTS - we'll load manually
-                # This avoids the configuration mismatch issues
 
-                # Create model without loading weights first
-                logger.info("🔄 Building model architecture...")
+            self.predictor = DefaultPredictor(cfg)
+            
+            # We need to manually set the model weights for the predictor if using direct load
+            self.predictor.model.load_state_dict(self.model.state_dict())
 
-                # Try to use the actual HADM config
-                try:
-                    # First try to use the HADM-specific config
-                    hadm_config_path = (
-                        "HADM/projects/ViTDet/configs/eva2_o365_to_coco/demo_local.py"
-                    )
-                    if os.path.exists(hadm_config_path):
-                        logger.info(
-                            f"🎯 Using HADM-specific config: {hadm_config_path}"
-                        )
-                        # For .py configs, we need to use LazyConfig
-                        from detectron2.config import LazyConfig
 
-                        cfg = LazyConfig.load(hadm_config_path)
-                        if hasattr(cfg, "model") and hasattr(cfg.model, "device"):
-                            cfg.model.device = str(self.device)
-                        # Convert LazyConfig to CfgNode for compatibility
-                        from detectron2.config import instantiate
+            self.is_loaded = True
+            logger.info("✅ HADM-L model loaded successfully")
 
-                        model = instantiate(cfg.model)
-                        # Create a basic CfgNode for the predictor
-                        from detectron2.config import CfgNode
-
-                        cfg_node = CfgNode()
-                        cfg_node.MODEL.DEVICE = str(self.device)
-                        cfg_node.MODEL.WEIGHTS = ""
-                        self.predictor = DefaultPredictor(cfg_node)
-                        self.predictor.model = model.to(self.device)
-                    else:
-                        # Fallback to a working config from HADM's own configs
-                        logger.info("🔄 Using fallback config from HADM configs")
-
-                        # Use HADM's own config files instead of model zoo
-                        config_file = (
-                            "HADM/configs/COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml"
-                        )
-                        if os.path.exists(config_file):
-                            logger.info(f"✅ Using HADM config: {config_file}")
-                            cfg.merge_from_file(config_file)
-                        else:
-                            # Try without HADM prefix
-                            config_file = (
-                                "configs/COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml"
-                            )
-                            if os.path.exists(config_file):
-                                logger.info(f"✅ Using config: {config_file}")
-                                cfg.merge_from_file(config_file)
-                            else:
-                                logger.warning(
-                                    "❌ No suitable config file found - using minimal config"
-                                )
-                                # Create minimal config
-                                cfg.MODEL.META_ARCHITECTURE = "GeneralizedRCNN"
-                                cfg.MODEL.BACKBONE.NAME = "build_resnet_fpn_backbone"
-                                cfg.MODEL.RESNETS.DEPTH = 50
-                                cfg.MODEL.FPN.IN_FEATURES = [
-                                    "res2",
-                                    "res3",
-                                    "res4",
-                                    "res5",
-                                ]
-                                cfg.MODEL.ANCHOR_GENERATOR.SIZES = [
-                                    [32],
-                                    [64],
-                                    [128],
-                                    [256],
-                                    [512],
-                                ]
-                                cfg.MODEL.ANCHOR_GENERATOR.ASPECT_RATIOS = [
-                                    [0.5, 1.0, 2.0]
-                                ]
-                                cfg.MODEL.RPN.IN_FEATURES = [
-                                    "p2",
-                                    "p3",
-                                    "p4",
-                                    "p5",
-                                    "p6",
-                                ]
-                                cfg.MODEL.ROI_HEADS.IN_FEATURES = [
-                                    "p2",
-                                    "p3",
-                                    "p4",
-                                    "p5",
-                                ]
-
-                        cfg.MODEL.ROI_HEADS.NUM_CLASSES = self.num_classes
-                        cfg.MODEL.DEVICE = str(self.device)
-                        cfg.MODEL.WEIGHTS = ""  # Don't auto-load weights
-
-                        # Add HADM-specific configurations that are missing
-                        logger.info("🔧 Adding HADM-specific configurations...")
-
-                        # Add missing ROI_BOX_HEAD configurations
-                        if not hasattr(cfg.MODEL, "ROI_BOX_HEAD"):
-                            cfg.MODEL.ROI_BOX_HEAD = type(cfg.MODEL)()
-
-                        # Set all the missing attributes that HADM expects
-                        cfg.MODEL.ROI_BOX_HEAD.MULTI_LABEL = (
-                            False  # This was the main missing attribute
-                        )
-                        cfg.MODEL.ROI_BOX_HEAD.USE_FED_LOSS = False
-                        cfg.MODEL.ROI_BOX_HEAD.USE_SIGMOID_CE = False
-                        cfg.MODEL.ROI_BOX_HEAD.FED_LOSS_FREQ_WEIGHT_POWER = 0.5
-                        cfg.MODEL.ROI_BOX_HEAD.FED_LOSS_NUM_CLASSES = 50
-
-                        # Add other potentially missing configurations
-                        if not hasattr(cfg, "DATASETS"):
-                            cfg.DATASETS = type(cfg)()
-                            cfg.DATASETS.TRAIN = ("coco_2017_train",)
-
-                        # Create predictor
-                        self.predictor = DefaultPredictor(cfg)
-
-                    # Now manually load the weights
-                    logger.info("🔄 Loading weights into model...")
-
-                    # Handle different checkpoint formats
-                    if isinstance(model_state, dict) and "model" in model_state:
-                        state_dict = model_state["model"]
-                    else:
-                        state_dict = model_state
-
-                    # Load weights with strict=False to handle mismatches gracefully
-                    missing_keys, unexpected_keys = (
-                        self.predictor.model.load_state_dict(state_dict, strict=False)
-                    )
-
-                    if missing_keys:
-                        logger.warning(f"Missing keys: {len(missing_keys)} keys")
-                    if unexpected_keys:
-                        logger.warning(f"Unexpected keys: {len(unexpected_keys)} keys")
-
-                    logger.info("✅ Model weights loaded into architecture")
-
-                except Exception as arch_error:
-                    logger.warning(f"Standard architecture failed: {arch_error}")
-                    logger.info("🔄 Falling back to simplified mode...")
-                    self.simplified_mode = True
-                    self.is_loaded = True
-                    return True
-
-                # Store model reference
-                self.model = self.predictor.model
-
-                # Log GPU memory usage if available
-                if torch.cuda.is_available():
-                    memory_allocated = torch.cuda.memory_allocated() / 1024**3  # GB
-                    logger.info(f"🔥 GPU memory allocated: {memory_allocated:.2f} GB")
-
-                self.is_loaded = True
-                self.simplified_mode = False
-                logger.info("✅ HADM-L model loaded successfully into VRAM")
-                return True
-
-            except Exception as loading_error:
-                logger.error(f"❌ Failed to load model: {loading_error}")
-                logger.error(f"Full traceback: {traceback.format_exc()}")
-                logger.warning("⚠️ HADM-L will run in SIMPLIFIED MODE")
-                self.simplified_mode = True
-                self.is_loaded = True
-                return True
+            return True
 
         except Exception as e:
             logger.error(f"❌ Failed to load HADM-L model: {e}")
-            logger.warning("⚠️ HADM-L will run in SIMPLIFIED MODE")
-            self.simplified_mode = True
-            self.is_loaded = True
-            return True
+            logger.error(traceback.format_exc())
+            self.is_loaded = False
+            return False
 
     def predict(self, image: np.ndarray) -> List[LocalDetection]:
         """Predict local artifacts."""
@@ -500,15 +365,13 @@ class HADMGlobalModel(HADMModelBase):
         """Load HADM-G model with direct weight loading approach."""
         try:
             logger.info("🔄 Loading HADM Global (HADM-G) model...")
-
-            # Setup device
             self._setup_device()
 
-            # Check for model weights - try multiple paths
+            # Check for model weights
             model_paths = [
-                settings.hadm_g_model_path,  # /home/pretrained_models/HADM-G_0249999.pth
-                f"./pretrained_models/{settings.hadm_g_model}",  # Fallback
-                f"pretrained_models/{settings.hadm_g_model}",  # Another fallback
+                settings.hadm_g_model_path,
+                f"./pretrained_models/{settings.hadm_g_model}",
+                f"pretrained_models/{settings.hadm_g_model}",
             ]
 
             model_path = None
@@ -516,192 +379,50 @@ class HADMGlobalModel(HADMModelBase):
                 if os.path.exists(path):
                     model_path = path
                     break
-
+            
             if not model_path:
-                logger.warning(f"⚠️ Model weights not found in any of: {model_paths}")
+                logger.warning(f"⚠️ Model weights not found for HADM-G in: {model_paths}")
                 logger.warning("⚠️ HADM-G will run in SIMPLIFIED MODE")
                 self.simplified_mode = True
                 self.is_loaded = True
                 return True
 
-            logger.info(f"📁 Found model weights at {model_path}")
+            self.model_path = model_path
+            logger.info(f"Found HADM-G model at: {self.model_path}")
+            
+            # Configuration
+            cfg_path = os.path.join(HADM_PATH, "configs/HADM/HADM_G.py")
+            cfg = LazyConfig.load_file(cfg_path)
+            
+            # Build model
+            self.model = build_model(cfg.model)
+            self.model.to(self.device)
+            self.model.eval()
+            
+            # Load weights
+            model_state = self.load_model_weights_directly(self.model_path)
+            checkpointer = DetectionCheckpointer(self.model)
+            
+            if 'model' in model_state:
+                checkpointer.load(self.model_path)
+                logger.info("Loaded weights using DetectionCheckpointer from 'model' key for HADM-G.")
+            else:
+                self.model.load_state_dict(model_state, strict=False)
+                logger.info("Loaded weights directly for HADM-G.")
 
-            # Load model weights directly using the successful approach
-            try:
-                model_state = self.load_model_weights_directly(model_path)
-
-                # Create a minimal configuration
-                cfg = get_cfg()
-                cfg.MODEL.DEVICE = str(self.device)
-
-                # Try to use the actual HADM config
-                try:
-                    # First try to use the HADM-specific config
-                    hadm_config_path = (
-                        "HADM/projects/ViTDet/configs/eva2_o365_to_coco/demo_global.py"
-                    )
-                    if os.path.exists(hadm_config_path):
-                        logger.info(
-                            f"🎯 Using HADM-specific config: {hadm_config_path}"
-                        )
-                        # For .py configs, we need to use LazyConfig
-                        from detectron2.config import LazyConfig
-
-                        cfg = LazyConfig.load(
-                            hadm_config_path
-                        )  # Fixed: use .load instead of .load_config
-                        if hasattr(cfg, "model") and hasattr(cfg.model, "device"):
-                            cfg.model.device = str(self.device)
-                        # Convert LazyConfig to CfgNode for compatibility
-                        from detectron2.config import instantiate
-
-                        model = instantiate(cfg.model)
-                        # Create a basic CfgNode for the predictor
-                        from detectron2.config import CfgNode
-
-                        cfg_node = CfgNode()
-                        cfg_node.MODEL.DEVICE = str(self.device)
-                        cfg_node.MODEL.WEIGHTS = ""
-                        self.predictor = DefaultPredictor(cfg_node)
-                        self.predictor.model = model.to(self.device)
-                    else:
-                        # Fallback to a working config from HADM's own configs
-                        logger.info("🔄 Using fallback config from HADM configs")
-
-                        # Use HADM's own config files instead of model zoo
-                        config_file = (
-                            "HADM/configs/COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml"
-                        )
-                        if os.path.exists(config_file):
-                            logger.info(f"✅ Using HADM config: {config_file}")
-                            cfg.merge_from_file(config_file)
-                        else:
-                            # Try without HADM prefix
-                            config_file = (
-                                "configs/COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml"
-                            )
-                            if os.path.exists(config_file):
-                                logger.info(f"✅ Using config: {config_file}")
-                                cfg.merge_from_file(config_file)
-                            else:
-                                logger.warning(
-                                    "❌ No suitable config file found - using minimal config"
-                                )
-                                # Create minimal config
-                                cfg.MODEL.META_ARCHITECTURE = "GeneralizedRCNN"
-                                cfg.MODEL.BACKBONE.NAME = "build_resnet_fpn_backbone"
-                                cfg.MODEL.RESNETS.DEPTH = 50
-                                cfg.MODEL.FPN.IN_FEATURES = [
-                                    "res2",
-                                    "res3",
-                                    "res4",
-                                    "res5",
-                                ]
-                                cfg.MODEL.ANCHOR_GENERATOR.SIZES = [
-                                    [32],
-                                    [64],
-                                    [128],
-                                    [256],
-                                    [512],
-                                ]
-                                cfg.MODEL.ANCHOR_GENERATOR.ASPECT_RATIOS = [
-                                    [0.5, 1.0, 2.0]
-                                ]
-                                cfg.MODEL.RPN.IN_FEATURES = [
-                                    "p2",
-                                    "p3",
-                                    "p4",
-                                    "p5",
-                                    "p6",
-                                ]
-                                cfg.MODEL.ROI_HEADS.IN_FEATURES = [
-                                    "p2",
-                                    "p3",
-                                    "p4",
-                                    "p5",
-                                ]
-
-                        cfg.MODEL.ROI_HEADS.NUM_CLASSES = self.num_classes
-                        cfg.MODEL.DEVICE = str(self.device)
-                        cfg.MODEL.WEIGHTS = ""  # Don't auto-load weights
-
-                        # Add HADM-specific configurations that are missing
-                        logger.info("🔧 Adding HADM-specific configurations...")
-
-                        # Add missing ROI_BOX_HEAD configurations
-                        if not hasattr(cfg.MODEL, "ROI_BOX_HEAD"):
-                            cfg.MODEL.ROI_BOX_HEAD = type(cfg.MODEL)()
-
-                        # Set all the missing attributes that HADM expects
-                        cfg.MODEL.ROI_BOX_HEAD.MULTI_LABEL = (
-                            False  # This was the main missing attribute
-                        )
-                        cfg.MODEL.ROI_BOX_HEAD.USE_FED_LOSS = False
-                        cfg.MODEL.ROI_BOX_HEAD.USE_SIGMOID_CE = False
-                        cfg.MODEL.ROI_BOX_HEAD.FED_LOSS_FREQ_WEIGHT_POWER = 0.5
-                        cfg.MODEL.ROI_BOX_HEAD.FED_LOSS_NUM_CLASSES = 50
-
-                        # Add other potentially missing configurations
-                        if not hasattr(cfg, "DATASETS"):
-                            cfg.DATASETS = type(cfg)()
-                            cfg.DATASETS.TRAIN = ("coco_2017_train",)
-
-                        # Create predictor
-                        self.predictor = DefaultPredictor(cfg)
-
-                    # Manually load the weights
-                    logger.info("🔄 Loading weights into model...")
-
-                    if isinstance(model_state, dict) and "model" in model_state:
-                        state_dict = model_state["model"]
-                    else:
-                        state_dict = model_state
-
-                    missing_keys, unexpected_keys = (
-                        self.predictor.model.load_state_dict(state_dict, strict=False)
-                    )
-
-                    if missing_keys:
-                        logger.warning(f"Missing keys: {len(missing_keys)} keys")
-                    if unexpected_keys:
-                        logger.warning(f"Unexpected keys: {len(unexpected_keys)} keys")
-
-                    logger.info("✅ Model weights loaded into architecture")
-
-                except Exception as arch_error:
-                    logger.warning(f"Standard architecture failed: {arch_error}")
-                    logger.info("🔄 Falling back to simplified mode...")
-                    self.simplified_mode = True
-                    self.is_loaded = True
-                    return True
-
-                # Store model reference
-                self.model = self.predictor.model
-
-                # Log GPU memory usage
-                if torch.cuda.is_available():
-                    memory_allocated = torch.cuda.memory_allocated() / 1024**3  # GB
-                    logger.info(f"🔥 GPU memory allocated: {memory_allocated:.2f} GB")
-
-                self.is_loaded = True
-                self.simplified_mode = False
-                logger.info("✅ HADM-G model loaded successfully into VRAM")
-                return True
-
-            except Exception as loading_error:
-                logger.error(f"❌ Failed to load model: {loading_error}")
-                logger.error(f"Full traceback: {traceback.format_exc()}")
-                logger.warning("⚠️ HADM-G will run in SIMPLIFIED MODE")
-                self.simplified_mode = True
-                self.is_loaded = True
-                return True
+            # Create predictor
+            self.predictor = DefaultPredictor(cfg)
+            self.predictor.model.load_state_dict(self.model.state_dict())
+            
+            self.is_loaded = True
+            logger.info("✅ HADM-G model loaded successfully")
+            return True
 
         except Exception as e:
             logger.error(f"❌ Failed to load HADM-G model: {e}")
-            logger.warning("⚠️ HADM-G will run in SIMPLIFIED MODE")
-            self.simplified_mode = True
-            self.is_loaded = True
-            return True
+            logger.error(traceback.format_exc())
+            self.is_loaded = False
+            return False
 
     def predict(self, image: np.ndarray) -> Optional[GlobalDetection]:
         """Predict global artifacts."""
@@ -752,46 +473,85 @@ class HADMGlobalModel(HADMModelBase):
 
 
 class HADMModelManager:
-    """Manager for HADM models with improved loading."""
+    """Singleton manager for HADM models."""
 
     def __init__(self):
         self.local_model = HADMLocalModel()
         self.global_model = HADMGlobalModel()
+        self._is_loading = False
 
     def load_models(self) -> Dict[str, bool]:
         """Load all HADM models."""
-        logger.info("Loading HADM models...")
+        if self._is_loading:
+            logger.warning("Models are already in the process of loading.")
+            return {"status": "loading"}
 
-        results = {
-            "local": self.local_model.load_model(),
-            "global": self.global_model.load_model(),
-        }
+        self._is_loading = True
+        status = {}
+        try:
+            logger.info("--- Loading HADM Local Model ---")
+            status["local_model_loaded"] = self.local_model.load_model()
+            logger.info("--- Loading HADM Global Model ---")
+            status["global_model_loaded"] = self.global_model.load_model()
+        finally:
+            self._is_loading = False
+        return status
 
-        logger.info("All HADM models loaded successfully")
-        return results
-
-    def get_model_status(self) -> Dict[str, bool]:
-        """Get model loading status."""
+    def get_model_status(self) -> Dict[str, ModelStatus]:
+        """Get the status of all managed models."""
         return {
-            "local": self.local_model.is_loaded,
-            "global": self.global_model.is_loaded,
+            "local_model": ModelStatus(
+                is_loaded=self.local_model.is_loaded,
+                model_path=self.local_model.model_path,
+                model_size_mb=self.local_model.model_size_mb,
+                simplified_mode=self.local_model.simplified_mode,
+            ),
+            "global_model": ModelStatus(
+                is_loaded=self.global_model.is_loaded,
+                model_path=self.global_model.model_path,
+                model_size_mb=self.global_model.model_size_mb,
+                simplified_mode=self.global_model.simplified_mode,
+            ),
         }
+
+    def get_gpu_info(self) -> Optional[GPUInfo]:
+        """Get GPU information if available."""
+        if not torch.cuda.is_available():
+            return None
+
+        device = torch.device("cuda")
+        total_memory = torch.cuda.get_device_properties(device).total_memory
+        free_memory, _ = torch.cuda.mem_get_info(device)
+        used_memory = total_memory - free_memory
+        
+        # More detailed stats
+        mem_stats = torch.cuda.memory_stats(device)
+        
+        return GPUInfo(
+            device_name=torch.cuda.get_device_name(device),
+            total_memory_mb=round(total_memory / (1024 * 1024), 2),
+            used_memory_mb=round(used_memory / (1024 * 1024), 2),
+            free_memory_mb=round(free_memory / (1024 * 1024), 2),
+            active_memory_mb=round(mem_stats.get("active_bytes.all.current", 0) / (1024 * 1024), 2),
+            allocated_memory_mb=round(mem_stats.get("allocated_bytes.all.current", 0) / (1024 * 1024), 2),
+            reserved_memory_mb=round(mem_stats.get("reserved_bytes.all.current", 0) / (1024 * 1024), 2),
+        )
 
     async def predict_local(self, image: np.ndarray) -> List[LocalDetection]:
-        """Predict local artifacts."""
+        """Run prediction with the local model."""
         return self.local_model.predict(image)
 
     async def predict_global(self, image: np.ndarray) -> Optional[GlobalDetection]:
-        """Predict global artifacts."""
+        """Run prediction with the global model."""
         return self.global_model.predict(image)
 
     async def predict_both(
         self, image: np.ndarray
     ) -> Tuple[List[LocalDetection], Optional[GlobalDetection]]:
-        """Predict both local and global artifacts."""
+        """Run prediction with both models."""
         local_results = await self.predict_local(image)
-        global_results = await self.predict_global(image)
-        return local_results, global_results
+        global_result = await self.predict_global(image)
+        return local_results, global_result
 
 
 # Global model manager instance

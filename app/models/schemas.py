@@ -578,5 +578,30 @@ class InfoResponse(BaseModel):
         ..., description="Supported analysis features"
     )
     performance_benchmarks: Optional[Dict[str, float]] = Field(
-        None, description="Performance benchmarks"
+        None, description="Model performance benchmarks"
     )
+
+
+class ModelStatus(BaseModel):
+    """Detailed status of a single model."""
+    is_loaded: bool = Field(..., description="Whether the model is loaded and ready")
+    model_path: Optional[str] = Field(None, description="Path to the model weights file")
+    model_size_mb: Optional[float] = Field(None, description="Size of the model in megabytes")
+    simplified_mode: bool = Field(False, description="Whether the model is running in a simplified (fallback) mode")
+
+
+class GPUInfo(BaseModel):
+    """Detailed GPU information."""
+    device_name: str = Field(..., description="GPU device name")
+    total_memory_mb: float = Field(..., description="Total GPU memory in MB")
+    used_memory_mb: float = Field(..., description="Used GPU memory in MB")
+    free_memory_mb: float = Field(..., description="Free GPU memory in MB")
+    active_memory_mb: float = Field(..., description="Active memory in MB (PyTorch)")
+    allocated_memory_mb: float = Field(..., description="Allocated memory in MB (PyTorch)")
+    reserved_memory_mb: float = Field(..., description="Reserved memory in MB (PyTorch)")
+
+
+class ModelStatusResponse(BaseModel):
+    """Response model for detailed model and GPU status."""
+    model_status: Dict[str, ModelStatus] = Field(..., description="Status of each loaded model")
+    gpu_info: Optional[GPUInfo] = Field(None, description="Information about the GPU, if available")
